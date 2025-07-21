@@ -71,12 +71,12 @@ class SpeedWP_ClientController
             'client_id' => $this->clientId,
             'wp_sites' => $wpSites,
             'hosting_accounts' => $hostingAccounts,
+            'hosting_accounts_json' => json_encode($hostingAccounts), // For JavaScript access
             'actions' => [
                 'scan' => 'Scan for WordPress',
                 'install' => 'Install WordPress',
                 'manage' => 'Manage Sites'
             ],
-            // TODO: Add more template variables as needed
         ];
 
         return [
@@ -151,6 +151,18 @@ class SpeedWP_ClientController
                 
             case 'update_theme':
                 $this->updateTheme();
+                break;
+                
+            case 'get_backups':
+                $this->getBackups();
+                break;
+                
+            case 'restore_backup':
+                $this->restoreBackup();
+                break;
+                
+            case 'delete_backup':
+                $this->deleteBackup();
                 break;
                 
             default:
@@ -491,20 +503,229 @@ class SpeedWP_ClientController
      */
     private function updateWordPress()
     {
-        // TODO: Implement WordPress update via cPanel API
         try {
             $siteId = $_POST['site_id'] ?? 0;
+            $updateType = $_POST['update_type'] ?? 'core'; // core, plugins, themes, all
             
-            // TODO: Update WordPress core and plugins
+            // Get site details
+            $site = $this->getSiteDetails($siteId);
+            if (!$site) {
+                throw new Exception('WordPress site not found');
+            }
+            
+            require_once __DIR__ . '/../lib/cpanelApi.php';
+            
+            $cpanel = new SpeedWP_CpanelApi();
+            $cpanel->setCredentials($site['cpanel_user'], $this->getCpanelPassword($site['cpanel_user']));
+            
+            // Get addon configuration
+            $addonConfig = getAddonVars('speedwp');
+            $autoBackup = $addonConfig['auto_backup_before_update'] ?? true;
+            
+            $results = [];
+            
+            // Create backup if enabled
+            if ($autoBackup) {
+                try {
+                    $backupResult = $cpanel->backupWordPress($site['wp_path']);
+                    if ($backupResult['success']) {
+                        // Store backup record
+                        $query = "INSERT INTO mod_speedwp_backups 
+                                 (site_id, backup_name, backup_type, file_path, file_size, status, created_at) 
+                                 VALUES (:site_id, :backup_name, 'full', :file_path, :file_size, 'completed', NOW())";
+                        
+                        $stmt = Capsule::connection()->getPdo()->prepare($query);
+                        $stmt->execute([
+                            'site_id' => $siteId,
+                            'backup_name' => $backupResult['backup_file'],
+                            'file_path' => $backupResult['file_backup']['backup_file'] ?? '',
+                            'file_size' => $backupResult['file_backup']['size'] ?? 0
+                        ]);
+                        
+                        $results['backup'] = 'Backup created successfully';
+                    }
+                } catch (Exception $e) {
+                    // Log backup failure but continue with update
+                    $this->logActivity('backup_failed', "Pre-update backup failed: " . $e->getMessage(), 'warning');
+                    $results['backup'] = 'Backup failed: ' . $e->getMessage();
+                }
+            }
+            
+            // Update WordPress core
+            if ($updateType === 'core' || $updateType === 'all') {
+                $coreResult = $cpanel->updateWordPressCore($site['wp_path']);
+                if ($coreResult['success']) {
+                    // Update version in database
+                    $query = "UPDATE mod_speedwp_sites SET wp_version = :version, updated_at = NOW() WHERE id = :site_id";
+                    $stmt = Capsule::connection()->getPdo()->prepare($query);
+                    $stmt->execute([
+                        'version' => $coreResult['new_version'],
+                        'site_id' => $siteId
+                    ]);
+                    
+                    $results['core'] = 'WordPress core updated to ' . $coreResult['new_version'];
+                    $this->logActivity('wordpress_update', "WordPress core updated to {$coreResult['new_version']} for {$site['domain']}{$site['wp_path']}");
+                } else {
+                    $results['core'] = 'WordPress core update failed';
+                }
+            }
+            
+            // Update plugins
+            if ($updateType === 'plugins' || $updateType === 'all') {
+                $pluginResults = $this->updateAllPlugins($cpanel, $siteId, $site);
+                $results['plugins'] = $pluginResults;
+            }
+            
+            // Update themes
+            if ($updateType === 'themes' || $updateType === 'all') {
+                $themeResults = $this->updateAllThemes($cpanel, $siteId, $site);
+                $results['themes'] = $themeResults;
+            }
+            
+            // Update last update check time
+            $query = "UPDATE mod_speedwp_sites SET last_update_check = NOW() WHERE id = :site_id";
+            $stmt = Capsule::connection()->getPdo()->prepare($query);
+            $stmt->execute(['site_id' => $siteId]);
             
             $this->ajaxResponse([
                 'success' => true,
-                'message' => 'WordPress update completed'
+                'message' => 'WordPress update completed',
+                'results' => $results,
+                'backup_created' => $autoBackup
             ]);
             
         } catch (Exception $e) {
+            $this->logActivity('wordpress_update', "WordPress update failed: " . $e->getMessage(), 'error');
             $this->ajaxResponse(['error' => $e->getMessage()]);
         }
+    }
+
+    /**
+     * Update all plugins for a site
+     * 
+     * @param SpeedWP_CpanelApi $cpanel
+     * @param int $siteId
+     * @param array $site
+     * @return array
+     */
+    private function updateAllPlugins($cpanel, $siteId, $site)
+    {
+        $results = [];
+        $updated = 0;
+        $failed = 0;
+        
+        try {
+            // Get plugins that need updates
+            $query = "SELECT plugin_slug FROM mod_speedwp_plugins WHERE site_id = :site_id AND status = 'active'";
+            $stmt = Capsule::connection()->getPdo()->prepare($query);
+            $stmt->execute(['site_id' => $siteId]);
+            $plugins = $stmt->fetchAll(PDO::FETCH_COLUMN);
+            
+            foreach ($plugins as $pluginSlug) {
+                try {
+                    $updateResult = $cpanel->updateWordPressPlugin($site['wp_path'], $pluginSlug);
+                    if ($updateResult['success']) {
+                        // Update version in database
+                        $query = "UPDATE mod_speedwp_plugins 
+                                 SET version = :version 
+                                 WHERE site_id = :site_id AND plugin_slug = :plugin_slug";
+                        
+                        $stmt = Capsule::connection()->getPdo()->prepare($query);
+                        $stmt->execute([
+                            'version' => $updateResult['new_version'] ?? 'latest',
+                            'site_id' => $siteId,
+                            'plugin_slug' => $pluginSlug
+                        ]);
+                        
+                        $updated++;
+                    } else {
+                        $failed++;
+                    }
+                } catch (Exception $e) {
+                    $failed++;
+                    $this->logActivity('plugin_update', "Plugin update failed for {$pluginSlug}: " . $e->getMessage(), 'error');
+                }
+            }
+            
+            $results['message'] = "Plugins updated: {$updated}, Failed: {$failed}";
+            $results['updated'] = $updated;
+            $results['failed'] = $failed;
+            
+            if ($updated > 0) {
+                $this->logActivity('plugin_bulk_update', "Bulk plugin update completed: {$updated} updated, {$failed} failed for {$site['domain']}{$site['wp_path']}");
+            }
+            
+        } catch (Exception $e) {
+            $results['message'] = 'Plugin update process failed: ' . $e->getMessage();
+            $results['updated'] = 0;
+            $results['failed'] = count($plugins ?? []);
+        }
+        
+        return $results;
+    }
+
+    /**
+     * Update all themes for a site
+     * 
+     * @param SpeedWP_CpanelApi $cpanel
+     * @param int $siteId
+     * @param array $site
+     * @return array
+     */
+    private function updateAllThemes($cpanel, $siteId, $site)
+    {
+        $results = [];
+        $updated = 0;
+        $failed = 0;
+        
+        try {
+            // Get all themes
+            $query = "SELECT theme_slug FROM mod_speedwp_themes WHERE site_id = :site_id";
+            $stmt = Capsule::connection()->getPdo()->prepare($query);
+            $stmt->execute(['site_id' => $siteId]);
+            $themes = $stmt->fetchAll(PDO::FETCH_COLUMN);
+            
+            foreach ($themes as $themeSlug) {
+                try {
+                    $updateResult = $cpanel->updateWordPressTheme($site['wp_path'], $themeSlug);
+                    if ($updateResult['success']) {
+                        // Update version in database
+                        $query = "UPDATE mod_speedwp_themes 
+                                 SET version = :version 
+                                 WHERE site_id = :site_id AND theme_slug = :theme_slug";
+                        
+                        $stmt = Capsule::connection()->getPdo()->prepare($query);
+                        $stmt->execute([
+                            'version' => $updateResult['new_version'] ?? 'latest',
+                            'site_id' => $siteId,
+                            'theme_slug' => $themeSlug
+                        ]);
+                        
+                        $updated++;
+                    } else {
+                        $failed++;
+                    }
+                } catch (Exception $e) {
+                    $failed++;
+                    $this->logActivity('theme_update', "Theme update failed for {$themeSlug}: " . $e->getMessage(), 'error');
+                }
+            }
+            
+            $results['message'] = "Themes updated: {$updated}, Failed: {$failed}";
+            $results['updated'] = $updated;
+            $results['failed'] = $failed;
+            
+            if ($updated > 0) {
+                $this->logActivity('theme_bulk_update', "Bulk theme update completed: {$updated} updated, {$failed} failed for {$site['domain']}{$site['wp_path']}");
+            }
+            
+        } catch (Exception $e) {
+            $results['message'] = 'Theme update process failed: ' . $e->getMessage();
+            $results['updated'] = 0;
+            $results['failed'] = count($themes ?? []);
+        }
+        
+        return $results;
     }
 
     /**
@@ -1365,6 +1586,177 @@ class SpeedWP_ClientController
         } catch (Exception $e) {
             logActivity("SpeedWP Error updating themes in database: " . $e->getMessage());
         }
+    }
+
+    /**
+     * Get backups for a site
+     * 
+     * @return void
+     */
+    private function getBackups()
+    {
+        try {
+            $siteId = $_POST['site_id'] ?? 0;
+            
+            // Get site details
+            $site = $this->getSiteDetails($siteId);
+            if (!$site) {
+                throw new Exception('WordPress site not found');
+            }
+            
+            // Get backups from database
+            $query = "SELECT id, backup_name, backup_type, file_size, status, created_at 
+                     FROM mod_speedwp_backups 
+                     WHERE site_id = :site_id 
+                     ORDER BY created_at DESC";
+            
+            $stmt = Capsule::connection()->getPdo()->prepare($query);
+            $stmt->execute(['site_id' => $siteId]);
+            $backups = $stmt->fetchAll(PDO::FETCH_ASSOC);
+            
+            // Format data for display
+            foreach ($backups as &$backup) {
+                $backup['size_formatted'] = $this->formatBytes($backup['file_size']);
+                $backup['age'] = $this->timeAgo($backup['created_at']);
+            }
+            
+            $this->ajaxResponse([
+                'success' => true,
+                'backups' => $backups
+            ]);
+            
+        } catch (Exception $e) {
+            $this->ajaxResponse(['error' => $e->getMessage()]);
+        }
+    }
+
+    /**
+     * Restore from backup
+     * 
+     * @return void
+     */
+    private function restoreBackup()
+    {
+        try {
+            $siteId = $_POST['site_id'] ?? 0;
+            $backupId = $_POST['backup_id'] ?? 0;
+            
+            // Get site details
+            $site = $this->getSiteDetails($siteId);
+            if (!$site) {
+                throw new Exception('WordPress site not found');
+            }
+            
+            // Get backup details
+            $backupQuery = "SELECT * FROM mod_speedwp_backups 
+                           WHERE id = :backup_id AND site_id = :site_id AND status = 'completed'";
+            $backupStmt = Capsule::connection()->getPdo()->prepare($backupQuery);
+            $backupStmt->execute(['backup_id' => $backupId, 'site_id' => $siteId]);
+            $backup = $backupStmt->fetch();
+            
+            if (!$backup) {
+                throw new Exception('Backup not found');
+            }
+            
+            require_once __DIR__ . '/../lib/cpanelApi.php';
+            
+            $cpanel = new SpeedWP_CpanelApi();
+            $cpanel->setCredentials($site['cpanel_user'], $this->getCpanelPassword($site['cpanel_user']));
+            
+            // Restore from backup
+            $restoreResult = $cpanel->restoreWordPressBackup($site['wp_path'], $backup['file_path']);
+            
+            if ($restoreResult['success']) {
+                $this->logActivity('backup_restore', "WordPress restored from backup {$backup['backup_name']} for {$site['domain']}{$site['wp_path']}");
+                
+                $this->ajaxResponse([
+                    'success' => true,
+                    'message' => 'WordPress restored successfully from backup'
+                ]);
+            } else {
+                throw new Exception('Backup restore failed');
+            }
+            
+        } catch (Exception $e) {
+            $this->logActivity('backup_restore', "Backup restore failed: " . $e->getMessage(), 'error');
+            $this->ajaxResponse(['error' => $e->getMessage()]);
+        }
+    }
+
+    /**
+     * Delete backup
+     * 
+     * @return void
+     */
+    private function deleteBackup()
+    {
+        try {
+            $siteId = $_POST['site_id'] ?? 0;
+            $backupId = $_POST['backup_id'] ?? 0;
+            
+            // Get site details
+            $site = $this->getSiteDetails($siteId);
+            if (!$site) {
+                throw new Exception('WordPress site not found');
+            }
+            
+            // Get backup details
+            $backupQuery = "SELECT * FROM mod_speedwp_backups WHERE id = :backup_id AND site_id = :site_id";
+            $backupStmt = Capsule::connection()->getPdo()->prepare($backupQuery);
+            $backupStmt->execute(['backup_id' => $backupId, 'site_id' => $siteId]);
+            $backup = $backupStmt->fetch();
+            
+            if (!$backup) {
+                throw new Exception('Backup not found');
+            }
+            
+            require_once __DIR__ . '/../lib/cpanelApi.php';
+            
+            $cpanel = new SpeedWP_CpanelApi();
+            $cpanel->setCredentials($site['cpanel_user'], $this->getCpanelPassword($site['cpanel_user']));
+            
+            // Delete backup file
+            try {
+                $cpanel->deleteBackupFile($backup['file_path']);
+            } catch (Exception $e) {
+                // Log but don't fail if file deletion fails
+                $this->logActivity('backup_delete', "Backup file deletion failed: " . $e->getMessage(), 'warning');
+            }
+            
+            // Delete backup record
+            $deleteQuery = "DELETE FROM mod_speedwp_backups WHERE id = :backup_id";
+            $deleteStmt = Capsule::connection()->getPdo()->prepare($deleteQuery);
+            $deleteStmt->execute(['backup_id' => $backupId]);
+            
+            $this->logActivity('backup_delete', "Backup {$backup['backup_name']} deleted for {$site['domain']}{$site['wp_path']}");
+            
+            $this->ajaxResponse([
+                'success' => true,
+                'message' => 'Backup deleted successfully'
+            ]);
+            
+        } catch (Exception $e) {
+            $this->logActivity('backup_delete', "Backup deletion failed: " . $e->getMessage(), 'error');
+            $this->ajaxResponse(['error' => $e->getMessage()]);
+        }
+    }
+
+    /**
+     * Calculate time ago string
+     * 
+     * @param string $datetime
+     * @return string
+     */
+    private function timeAgo($datetime)
+    {
+        $time = time() - strtotime($datetime);
+        
+        if ($time < 60) return 'just now';
+        if ($time < 3600) return floor($time/60) . ' minutes ago';
+        if ($time < 86400) return floor($time/3600) . ' hours ago';
+        if ($time < 2592000) return floor($time/86400) . ' days ago';
+        
+        return date('Y-m-d H:i', strtotime($datetime));
     }
 
     /**

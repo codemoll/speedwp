@@ -997,4 +997,61 @@ class SpeedWP_CpanelApi
         
         return $salts;
     }
+
+    /**
+     * Restore WordPress from backup
+     * 
+     * @param string $path WordPress installation path
+     * @param string $backupFile Backup file path
+     * @return array Restore result
+     */
+    public function restoreWordPressBackup($path, $backupFile)
+    {
+        try {
+            $this->logDebug("Restoring WordPress from backup: {$backupFile}");
+            
+            // Extract backup to restore location
+            $restoreResult = $this->executeApiCall('Fileman', 'extract_archive', [
+                'archive' => $backupFile,
+                'destination' => $path,
+                'overwrite' => true
+            ]);
+            
+            return [
+                'success' => true,
+                'backup_file' => $backupFile,
+                'restored_to' => $path
+            ];
+            
+        } catch (Exception $e) {
+            $this->logError("WordPress restore failed: " . $e->getMessage());
+            throw $e;
+        }
+    }
+
+    /**
+     * Delete backup file
+     * 
+     * @param string $backupFile Backup file path
+     * @return array Delete result
+     */
+    public function deleteBackupFile($backupFile)
+    {
+        try {
+            $this->logDebug("Deleting backup file: {$backupFile}");
+            
+            $deleteResult = $this->executeApiCall('Fileman', 'delete_files', [
+                'files' => [$backupFile]
+            ]);
+            
+            return [
+                'success' => true,
+                'deleted_file' => $backupFile
+            ];
+            
+        } catch (Exception $e) {
+            $this->logError("Backup file deletion failed: " . $e->getMessage());
+            throw $e;
+        }
+    }
 }

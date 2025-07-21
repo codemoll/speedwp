@@ -279,6 +279,14 @@ function speedwp_output($vars)
  */
 function speedwp_clientarea($vars)
 {
+    // Handle AJAX requests
+    if (isset($_POST['action']) && $_POST['action']) {
+        require_once __DIR__ . '/controllers/ClientController.php';
+        $controller = new SpeedWP_ClientController($vars);
+        $controller->handleAjax();
+        return; // Ajax requests don't return template data
+    }
+    
     // Include client controller
     require_once __DIR__ . '/controllers/ClientController.php';
     

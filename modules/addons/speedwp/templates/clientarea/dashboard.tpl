@@ -736,8 +736,216 @@ function updateTheme(siteId, themeSlug) {
 }
 
 function viewBackups(siteId) {
-    alert('Backup management interface coming soon!');
-    // TODO: Implement backup viewing modal
+    showLoading();
+    
+    // Get backups list
+    $.ajax({
+        url: 'index.php?m=speedwp&action=ajax',
+        method: 'POST',
+        data: {
+            action: 'get_backups',
+            site_id: siteId
+        },
+        success: function(response) {
+            hideLoading();
+            if (response.success) {
+                showBackupModal(siteId, response.backups);
+            } else {
+                alert('Error: ' + (response.error || 'Failed to load backups'));
+            }
+        },
+        error: function() {
+            hideLoading();
+            alert('Communication error. Please try again.');
+        }
+    });
+}
+
+function showBackupModal(siteId, backups) {
+    var backupRows = '';
+    
+    if (backups.length === 0) {
+        backupRows = '<tr><td colspan="5" class="text-center">No backups found. Create your first backup using the backup button.</td></tr>';
+    } else {
+        backups.forEach(function(backup) {
+            var statusBadge = '';
+            switch(backup.status) {
+                case 'completed':
+                    statusBadge = '<span class="label label-success">Completed</span>';
+                    break;
+                case 'creating':
+                    statusBadge = '<span class="label label-warning">Creating</span>';
+                    break;
+                case 'failed':
+                    statusBadge = '<span class="label label-danger">Failed</span>';
+                    break;
+                default:
+                    statusBadge = '<span class="label label-default">' + backup.status + '</span>';
+            }
+            
+            var actions = '';
+            if (backup.status === 'completed') {
+                actions = `
+                    <button class="btn btn-primary btn-xs" onclick="restoreBackup(${siteId}, ${backup.id})">Restore</button>
+                    <button class="btn btn-danger btn-xs" onclick="deleteBackup(${siteId}, ${backup.id})">Delete</button>
+                `;
+            }
+            
+            backupRows += `
+                <tr>
+                    <td>${backup.backup_name}</td>
+                    <td>${backup.backup_type}</td>
+                    <td>${backup.size_formatted}</td>
+                    <td>${statusBadge}</td>
+                    <td>${backup.age}</td>
+                    <td>${actions}</td>
+                </tr>
+            `;
+        });
+    }
+    
+    var modalHtml = `
+        <div class="modal fade" id="backupModal" tabindex="-1">
+            <div class="modal-dialog modal-lg">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <button type="button" class="close" data-dismiss="modal">&times;</button>
+                        <h4 class="modal-title">Backup Management</h4>
+                    </div>
+                    <div class="modal-body">
+                        <div class="row">
+                            <div class="col-md-12">
+                                <button class="btn btn-success btn-sm" onclick="createNewBackup(${siteId})" style="margin-bottom: 15px;">
+                                    <i class="fa fa-plus"></i> Create New Backup
+                                </button>
+                            </div>
+                        </div>
+                        <div class="table-responsive">
+                            <table class="table table-striped">
+                                <thead>
+                                    <tr>
+                                        <th>Backup Name</th>
+                                        <th>Type</th>
+                                        <th>Size</th>
+                                        <th>Status</th>
+                                        <th>Created</th>
+                                        <th>Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    ${backupRows}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-default" data-dismiss="modal">Close</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    `;
+    
+    $('body').append(modalHtml);
+    $('#backupModal').modal('show');
+    $('#backupModal').on('hidden.bs.modal', function () {
+        $(this).remove();
+    });
+}
+
+function createNewBackup(siteId) {
+    if (!confirm('Create a new backup? This may take several minutes depending on site size.')) {
+        return;
+    }
+    
+    showLoading();
+    
+    $.ajax({
+        url: 'index.php?m=speedwp&action=ajax',
+        method: 'POST',
+        data: {
+            action: 'backup_wordpress',
+            site_id: siteId
+        },
+        success: function(response) {
+            hideLoading();
+            if (response.success) {
+                alert('Backup created successfully!');
+                $('#backupModal').modal('hide');
+                viewBackups(siteId); // Refresh the list
+            } else {
+                alert('Error: ' + (response.error || 'Backup creation failed'));
+            }
+        },
+        error: function() {
+            hideLoading();
+            alert('Communication error. Please try again.');
+        }
+    });
+}
+
+function restoreBackup(siteId, backupId) {
+    if (!confirm('Restore from this backup? This will overwrite the current WordPress installation and cannot be undone.')) {
+        return;
+    }
+    
+    showLoading();
+    
+    $.ajax({
+        url: 'index.php?m=speedwp&action=ajax',
+        method: 'POST',
+        data: {
+            action: 'restore_backup',
+            site_id: siteId,
+            backup_id: backupId
+        },
+        success: function(response) {
+            hideLoading();
+            if (response.success) {
+                alert('WordPress restored successfully from backup!');
+                $('#backupModal').modal('hide');
+                location.reload();
+            } else {
+                alert('Error: ' + (response.error || 'Restore failed'));
+            }
+        },
+        error: function() {
+            hideLoading();
+            alert('Communication error. Please try again.');
+        }
+    });
+}
+
+function deleteBackup(siteId, backupId) {
+    if (!confirm('Delete this backup? This action cannot be undone.')) {
+        return;
+    }
+    
+    showLoading();
+    
+    $.ajax({
+        url: 'index.php?m=speedwp&action=ajax',
+        method: 'POST',
+        data: {
+            action: 'delete_backup',
+            site_id: siteId,
+            backup_id: backupId
+        },
+        success: function(response) {
+            hideLoading();
+            if (response.success) {
+                alert('Backup deleted successfully!');
+                $('#backupModal').modal('hide');
+                viewBackups(siteId); // Refresh the list
+            } else {
+                alert('Error: ' + (response.error || 'Backup deletion failed'));
+            }
+        },
+        error: function() {
+            hideLoading();
+            alert('Communication error. Please try again.');
+        }
+    });
 }
 
 function securityScan(siteId) {
@@ -756,24 +964,101 @@ function siteHealth(siteId) {
 }
 
 function updateSite(siteId) {
-    if (!confirm('Update WordPress for this site? This may take a few minutes.')) {
+    // Show update options modal
+    var modalHtml = `
+        <div class="modal fade" id="updateModal" tabindex="-1">
+            <div class="modal-dialog">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <button type="button" class="close" data-dismiss="modal">&times;</button>
+                        <h4 class="modal-title">WordPress Update Options</h4>
+                    </div>
+                    <div class="modal-body">
+                        <p>Choose what to update for this WordPress site:</p>
+                        <div class="radio">
+                            <label>
+                                <input type="radio" name="updateType" value="core" checked>
+                                <strong>WordPress Core Only</strong><br>
+                                <small class="text-muted">Update WordPress to the latest version</small>
+                            </label>
+                        </div>
+                        <div class="radio">
+                            <label>
+                                <input type="radio" name="updateType" value="plugins">
+                                <strong>Plugins Only</strong><br>
+                                <small class="text-muted">Update all active plugins</small>
+                            </label>
+                        </div>
+                        <div class="radio">
+                            <label>
+                                <input type="radio" name="updateType" value="themes">
+                                <strong>Themes Only</strong><br>
+                                <small class="text-muted">Update all installed themes</small>
+                            </label>
+                        </div>
+                        <div class="radio">
+                            <label>
+                                <input type="radio" name="updateType" value="all">
+                                <strong>Everything</strong><br>
+                                <small class="text-muted">Update WordPress core, plugins, and themes</small>
+                            </label>
+                        </div>
+                        <div class="alert alert-info">
+                            <i class="fa fa-info-circle"></i> A backup will be created automatically before updating.
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-default" data-dismiss="modal">Cancel</button>
+                        <button type="button" class="btn btn-warning" onclick="executeUpdate(${siteId})">Start Update</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    `;
+    
+    $('body').append(modalHtml);
+    $('#updateModal').modal('show');
+    $('#updateModal').on('hidden.bs.modal', function () {
+        $(this).remove();
+    });
+}
+
+function executeUpdate(siteId) {
+    var updateType = $('input[name="updateType"]:checked').val();
+    
+    if (!confirm('Start WordPress update? This may take several minutes and a backup will be created first.')) {
         return;
     }
     
+    $('#updateModal').modal('hide');
     showLoading();
     
-    // TODO: Implement AJAX call to update WordPress
     $.ajax({
         url: 'index.php?m=speedwp&action=ajax',
         method: 'POST',
         data: {
             action: 'update_wordpress',
-            site_id: siteId
+            site_id: siteId,
+            update_type: updateType
         },
         success: function(response) {
             hideLoading();
             if (response.success) {
-                alert('WordPress update completed successfully!');
+                var message = 'WordPress update completed successfully!\n\n';
+                if (response.results.backup) {
+                    message += 'Backup: ' + response.results.backup + '\n';
+                }
+                if (response.results.core) {
+                    message += 'Core: ' + response.results.core + '\n';
+                }
+                if (response.results.plugins) {
+                    message += 'Plugins: ' + response.results.plugins.message + '\n';
+                }
+                if (response.results.themes) {
+                    message += 'Themes: ' + response.results.themes.message + '\n';
+                }
+                
+                alert(message);
                 location.reload();
             } else {
                 alert('Error: ' + (response.error || 'Update failed'));
@@ -886,8 +1171,139 @@ function scanAllAccounts() {
 }
 
 function showInstallModal() {
-    alert('WordPress installation wizard coming soon!');
-    // TODO: Show modal with installation options
+    var modalHtml = `
+        <div class="modal fade" id="installModal" tabindex="-1">
+            <div class="modal-dialog modal-lg">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <button type="button" class="close" data-dismiss="modal">&times;</button>
+                        <h4 class="modal-title">Install WordPress</h4>
+                    </div>
+                    <div class="modal-body">
+                        <form id="installForm">
+                            <div class="row">
+                                <div class="col-md-6">
+                                    <div class="form-group">
+                                        <label>Hosting Account *</label>
+                                        <select class="form-control" name="hosting_id" required>
+                                            <option value="">Select hosting account...</option>
+                                            ${getHostingAccountOptions()}
+                                        </select>
+                                    </div>
+                                    <div class="form-group">
+                                        <label>Installation Path *</label>
+                                        <input type="text" class="form-control" name="path" value="/" placeholder="/" required>
+                                        <small class="help-block">Use / for main domain, or /subdirectory/ for subdirectory installation</small>
+                                    </div>
+                                    <div class="form-group">
+                                        <label>Site Title *</label>
+                                        <input type="text" class="form-control" name="site_title" placeholder="My WordPress Site" required>
+                                    </div>
+                                </div>
+                                <div class="col-md-6">
+                                    <div class="form-group">
+                                        <label>Admin Username *</label>
+                                        <input type="text" class="form-control" name="admin_user" value="admin" required>
+                                    </div>
+                                    <div class="form-group">
+                                        <label>Admin Email *</label>
+                                        <input type="email" class="form-control" name="admin_email" placeholder="admin@yourdomain.com" required>
+                                    </div>
+                                    <div class="form-group">
+                                        <label>Admin Password</label>
+                                        <input type="password" class="form-control" name="admin_password" placeholder="Leave blank to auto-generate">
+                                        <small class="help-block">Leave blank to generate a secure password automatically</small>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="alert alert-info">
+                                <i class="fa fa-info-circle"></i> 
+                                WordPress will be installed with the latest version. FTP credentials will be created automatically.
+                            </div>
+                        </form>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-default" data-dismiss="modal">Cancel</button>
+                        <button type="button" class="btn btn-success" onclick="executeInstall()">Install WordPress</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    `;
+    
+    $('body').append(modalHtml);
+    $('#installModal').modal('show');
+    $('#installModal').on('hidden.bs.modal', function () {
+        $(this).remove();
+    });
+}
+
+function getHostingAccountOptions() {
+    var hostingAccounts = {$hosting_accounts_json|default:'[]'};
+    var options = '<option value="">Select hosting account...</option>';
+    
+    hostingAccounts.forEach(function(account) {
+        options += '<option value="' + account.id + '">' + account.domain + ' (' + account.product_name + ')</option>';
+    });
+    
+    return options;
+}
+
+function executeInstall() {
+    var formData = {};
+    $('#installForm').serializeArray().forEach(function(field) {
+        formData[field.name] = field.value;
+    });
+    
+    // Validate required fields
+    if (!formData.hosting_id || !formData.site_title || !formData.admin_user || !formData.admin_email) {
+        alert('Please fill in all required fields.');
+        return;
+    }
+    
+    if (!confirm('Install WordPress with these settings? This may take several minutes.')) {
+        return;
+    }
+    
+    $('#installModal').modal('hide');
+    showLoading();
+    
+    $.ajax({
+        url: 'index.php?m=speedwp&action=ajax',
+        method: 'POST',
+        data: {
+            action: 'install_wordpress',
+            hosting_id: formData.hosting_id,
+            path: formData.path || '/',
+            site_title: formData.site_title,
+            admin_user: formData.admin_user,
+            admin_email: formData.admin_email,
+            admin_password: formData.admin_password
+        },
+        success: function(response) {
+            hideLoading();
+            if (response.success) {
+                var message = 'WordPress installed successfully!\n\n';
+                message += 'Admin URL: ' + response.admin_url + '\n';
+                message += 'Username: ' + response.admin_username + '\n';
+                message += 'Password: ' + response.admin_password + '\n';
+                if (response.ftp_credentials) {
+                    message += '\nFTP Details:\n';
+                    message += 'Username: ' + response.ftp_credentials.username + '\n';
+                    message += 'Password: ' + response.ftp_credentials.password;
+                }
+                
+                alert(message);
+                location.reload();
+            } else {
+                alert('Error: ' + (response.error || 'Installation failed'));
+            }
+        },
+        error: function() {
+            hideLoading();
+            alert('Communication error. Please try again.');
+        }
+    });
 }
 
 function updateAllSites() {
