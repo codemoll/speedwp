@@ -16,24 +16,118 @@ if (!defined("WHMCS")) {
 
 /**
  * Hook: After hosting account activation
- * Automatically detect and register WordPress installations
+ * Automatically detect and register WordPress installations, optionally auto-install WordPress
  */
 add_hook('AfterModuleCreate', 1, function($vars) {
     if ($vars['producttype'] == 'hostingaccount') {
-        // TODO: Scan for existing WordPress installations in the new hosting account
-        // TODO: Auto-register discovered WP sites in speedwp_sites table
-        
         try {
             // Include cPanel API
             require_once __DIR__ . '/lib/cpanelApi.php';
             
-            $cpanel = new SpeedWP_CpanelApi();
-            // TODO: Implement WordPress detection logic
+            // Get addon configuration
+            $addonConfig = getAddonVars('speedwp');
+            $autoInstall = $addonConfig['auto_install_wp'] ?? false;
             
-            logActivity("SpeedWP: Scanning for WordPress installations in new account: " . $vars['domain']);
+            $cpanel = new SpeedWP_CpanelApi();
+            $cpanel->setCredentials($vars['username'], $vars['password']);
+            
+            // Scan for existing WordPress installations
+            $existingInstalls = $cpanel->scanWordPressInstallations($vars['domain']);
+            
+            // Register existing installations
+            foreach ($existingInstalls as $install) {
+                $query = "INSERT INTO mod_speedwp_sites 
+                         (client_id, domain, cpanel_user, wp_path, wp_version, status, created_at) 
+                         VALUES (:client_id, :domain, :cpanel_user, :wp_path, :wp_version, 'active', NOW())";
+                
+                $stmt = Capsule::connection()->getPdo()->prepare($query);
+                $stmt->execute([
+                    'client_id' => $vars['userid'],
+                    'domain' => $vars['domain'],
+                    'cpanel_user' => $vars['username'],
+                    'wp_path' => $install['path'],
+                    'wp_version' => $install['version']
+                ]);
+                
+                // Create FTP credentials for existing installations
+                $ftpResult = $cpanel->createFtpAccount($vars['domain'], $install['path']);
+                if ($ftpResult['success']) {
+                    // Store FTP credentials in database
+                    $updateQuery = "UPDATE mod_speedwp_sites SET 
+                                   ftp_username = :ftp_username, 
+                                   ftp_password = :ftp_password 
+                                   WHERE client_id = :client_id AND domain = :domain AND wp_path = :wp_path";
+                    
+                    $updateStmt = Capsule::connection()->getPdo()->prepare($updateQuery);
+                    $updateStmt->execute([
+                        'ftp_username' => $ftpResult['username'],
+                        'ftp_password' => $ftpResult['password'],
+                        'client_id' => $vars['userid'],
+                        'domain' => $vars['domain'],
+                        'wp_path' => $install['path']
+                    ]);
+                }
+            }
+            
+            // Auto-install WordPress if enabled and no existing installations found
+            if ($autoInstall && empty($existingInstalls)) {
+                // Get client details for admin email
+                $clientQuery = "SELECT email, firstname, lastname FROM tblclients WHERE id = :userid";
+                $clientStmt = Capsule::connection()->getPdo()->prepare($clientQuery);
+                $clientStmt->execute(['userid' => $vars['userid']]);
+                $client = $clientStmt->fetch();
+                
+                if ($client) {
+                    $installOptions = [
+                        'admin_user' => 'admin',
+                        'admin_email' => $client['email'],
+                        'admin_password' => $cpanel->generatePassword(12),
+                        'site_title' => $client['firstname'] . "'s WordPress Site",
+                        'db_name' => $vars['username'] . '_wp',
+                        'db_user' => $vars['username'] . '_wp',
+                        'db_password' => $cpanel->generatePassword(12)
+                    ];
+                    
+                    $installResult = $cpanel->installWordPress($vars['domain'], '/', $installOptions);
+                    
+                    if ($installResult['success']) {
+                        // Create FTP credentials
+                        $ftpResult = $cpanel->createFtpAccount($vars['domain'], '/');
+                        
+                        // Register new installation
+                        $insertQuery = "INSERT INTO mod_speedwp_sites 
+                                       (client_id, domain, cpanel_user, wp_path, wp_version, status, 
+                                        admin_username, admin_password, ftp_username, ftp_password, created_at) 
+                                       VALUES (:client_id, :domain, :cpanel_user, :wp_path, :wp_version, 'active', 
+                                               :admin_username, :admin_password, :ftp_username, :ftp_password, NOW())";
+                        
+                        $insertStmt = Capsule::connection()->getPdo()->prepare($insertQuery);
+                        $insertStmt->execute([
+                            'client_id' => $vars['userid'],
+                            'domain' => $vars['domain'],
+                            'cpanel_user' => $vars['username'],
+                            'wp_path' => '/',
+                            'wp_version' => 'latest',
+                            'admin_username' => $installOptions['admin_user'],
+                            'admin_password' => $installOptions['admin_password'],
+                            'ftp_username' => $ftpResult['username'] ?? '',
+                            'ftp_password' => $ftpResult['password'] ?? ''
+                        ]);
+                        
+                        logActivity("SpeedWP: WordPress auto-installed for new account: " . $vars['domain']);
+                    }
+                }
+            }
+            
+            $foundCount = count($existingInstalls);
+            $message = "SpeedWP: Scanned account {$vars['domain']} - found {$foundCount} WordPress installation(s)";
+            if ($autoInstall && empty($existingInstalls)) {
+                $message .= " - WordPress auto-installed";
+            }
+            logActivity($message);
             
         } catch (Exception $e) {
-            logActivity("SpeedWP Error: " . $e->getMessage());
+            logActivity("SpeedWP Error processing new account {$vars['domain']}: " . $e->getMessage());
         }
     }
 });
@@ -160,10 +254,61 @@ add_hook('ClientLogin', 1, function($vars) {
 });
 
 /**
- * Hook: Before client area page display
- * Add WordPress-related announcements or notices
+ * Hook: Email template variables
+ * Add FTP credentials to welcome emails
  */
-add_hook('ClientAreaPageViewTicket', 1, function($vars) {
-    // TODO: Add context-aware WordPress tips or notifications
-    // Could include update reminders, security notices, etc.
+add_hook('EmailTplMergeFields', 1, function($vars) {
+    if ($vars['messagename'] == 'Hosting Account Welcome Email') {
+        // Get addon configuration
+        $addonConfig = getAddonVars('speedwp');
+        $includeFtpInEmail = $addonConfig['include_ftp_in_email'] ?? false;
+        
+        if ($includeFtpInEmail && isset($vars['relid'])) {
+            try {
+                // Get WordPress sites for this hosting account
+                $hostingQuery = "SELECT h.username FROM tblhosting h WHERE h.id = :hosting_id";
+                $stmt = Capsule::connection()->getPdo()->prepare($hostingQuery);
+                $stmt->execute(['hosting_id' => $vars['relid']]);
+                $hosting = $stmt->fetch();
+                
+                if ($hosting) {
+                    $sitesQuery = "SELECT domain, wp_path, ftp_username, ftp_password, site_title 
+                                  FROM mod_speedwp_sites 
+                                  WHERE cpanel_user = :cpanel_user 
+                                  AND status = 'active'
+                                  AND ftp_username IS NOT NULL";
+                    
+                    $sitesStmt = Capsule::connection()->getPdo()->prepare($sitesQuery);
+                    $sitesStmt->execute(['cpanel_user' => $hosting['username']]);
+                    $wpSites = $sitesStmt->fetchAll();
+                    
+                    if (!empty($wpSites)) {
+                        $ftpInfo = "\n\n=== WordPress FTP Access ===\n";
+                        $ftpInfo .= "Your hosting account includes WordPress installations with dedicated FTP access:\n\n";
+                        
+                        foreach ($wpSites as $site) {
+                            $ftpInfo .= "Site: " . ($site['site_title'] ?: $site['domain'] . $site['wp_path']) . "\n";
+                            $ftpInfo .= "FTP Host: " . $site['domain'] . "\n";
+                            $ftpInfo .= "FTP Username: " . $site['ftp_username'] . "\n";
+                            $ftpInfo .= "FTP Password: " . $site['ftp_password'] . "\n";
+                            $ftpInfo .= "FTP Port: 21\n";
+                            $ftpInfo .= "Directory: " . $site['wp_path'] . "\n";
+                            $ftpInfo .= "WordPress Admin: http://" . $site['domain'] . $site['wp_path'] . "wp-admin/\n\n";
+                        }
+                        
+                        $ftpInfo .= "You can use these FTP credentials to upload files, install themes/plugins, or make direct file modifications to your WordPress sites.\n";
+                        $ftpInfo .= "For security, we recommend changing these passwords after your first login.\n";
+                        
+                        // Add FTP info to email content
+                        $vars['message'] = $vars['message'] . $ftpInfo;
+                    }
+                }
+                
+            } catch (Exception $e) {
+                logActivity("SpeedWP Email Hook Error: " . $e->getMessage());
+            }
+        }
+    }
+    
+    return $vars;
 });
