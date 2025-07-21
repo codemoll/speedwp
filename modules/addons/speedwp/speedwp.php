@@ -14,6 +14,8 @@ if (!defined("WHMCS")) {
     die("This file cannot be accessed directly");
 }
 
+use Illuminate\Database\Capsule\Manager as Capsule;
+
 /**
  * Define addon module configuration
  * 
@@ -302,8 +304,86 @@ function speedwp_clientarea($vars)
  */
 function speedwp_AdminServicesTabFields($vars)
 {
-    // TODO: Add WordPress-specific fields to hosting service pages
-    return '';
+    $serviceid = $vars['serviceid'];
+    $domain = $vars['domain'];
+    $username = $vars['username'];
+    
+    // Get WordPress sites for this hosting service
+    try {
+        $query = "SELECT * FROM mod_speedwp_sites WHERE cpanel_user = ? ORDER BY wp_path";
+        $stmt = Capsule::connection()->getPdo()->prepare($query);
+        $stmt->execute([$username]);
+        $wpSites = $stmt->fetchAll(PDO::FETCH_ASSOC);
+    } catch (Exception $e) {
+        $wpSites = [];
+    }
+    
+    $output = '<div class="speedwp-service-tab">';
+    $output .= '<h4><i class="fa fa-wordpress"></i> WordPress Sites</h4>';
+    
+    if (empty($wpSites)) {
+        $output .= '<div class="alert alert-info">';
+        $output .= '<p>No WordPress sites found for this hosting account.</p>';
+        $output .= '<button type="button" class="btn btn-primary btn-sm" onclick="scanHostingAccount(' . $serviceid . ')">Scan for WordPress</button>';
+        $output .= '</div>';
+    } else {
+        $output .= '<div class="table-responsive">';
+        $output .= '<table class="table table-condensed">';
+        $output .= '<thead><tr><th>Path</th><th>Version</th><th>Status</th><th>Actions</th></tr></thead>';
+        $output .= '<tbody>';
+        
+        foreach ($wpSites as $site) {
+            $output .= '<tr>';
+            $output .= '<td><strong>' . htmlspecialchars($site['wp_path']) . '</strong></td>';
+            $output .= '<td>' . htmlspecialchars($site['wp_version'] ?: 'Unknown') . '</td>';
+            $output .= '<td><span class="label label-' . ($site['status'] === 'active' ? 'success' : 'warning') . '">' . ucfirst($site['status']) . '</span></td>';
+            $output .= '<td>';
+            $output .= '<button type="button" class="btn btn-xs btn-info" onclick="manageSiteFromAdmin(' . $site['id'] . ')">Manage</button> ';
+            $output .= '<button type="button" class="btn btn-xs btn-warning" onclick="updateSiteFromAdmin(' . $site['id'] . ')">Update</button>';
+            $output .= '</td>';
+            $output .= '</tr>';
+        }
+        
+        $output .= '</tbody></table>';
+        $output .= '</div>';
+        
+        $output .= '<button type="button" class="btn btn-primary btn-sm" onclick="scanHostingAccount(' . $serviceid . ')">Scan Again</button> ';
+        $output .= '<button type="button" class="btn btn-success btn-sm" onclick="installWordPressFromAdmin(' . $serviceid . ', \'' . $domain . '\')">Install WordPress</button>';
+    }
+    
+    $output .= '</div>';
+    
+    // Add JavaScript for admin service tab functionality
+    $output .= '<script>
+    function scanHostingAccount(serviceId) {
+        if (confirm("Scan this hosting account for WordPress installations?")) {
+            // TODO: Implement scanning functionality
+            alert("Scanning functionality coming soon!");
+        }
+    }
+    
+    function manageSiteFromAdmin(siteId) {
+        // TODO: Open site management modal
+        alert("Site management from admin interface coming soon!");
+    }
+    
+    function updateSiteFromAdmin(siteId) {
+        if (confirm("Update this WordPress site?")) {
+            // TODO: Implement update functionality
+            alert("Update functionality coming soon!");
+        }
+    }
+    
+    function installWordPressFromAdmin(serviceId, domain) {
+        var path = prompt("Enter installation path (e.g., / for root or /blog/ for subdirectory):", "/");
+        if (path !== null) {
+            // TODO: Implement WordPress installation
+            alert("WordPress installation from admin interface coming soon!");
+        }
+    }
+    </script>';
+    
+    return $output;
 }
 
 /**
