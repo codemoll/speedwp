@@ -89,15 +89,46 @@ class SpeedWP_AdminController
         $output .= '<div class="col-md-3">';
         $output .= '<div class="panel panel-default">';
         $output .= '<div class="panel-body text-center">';
-        $output .= '<h3>' . $stats['updates_available'] . '</h3>';
-        $output .= '<p>Updates Available</p>';
+        $output .= '<h3>' . $stats['total_clients'] . '</h3>';
+        $output .= '<p>Clients with WP</p>';
         $output .= '</div></div></div>';
         
         $output .= '<div class="col-md-3">';
         $output .= '<div class="panel panel-default">';
         $output .= '<div class="panel-body text-center">';
-        $output .= '<h3>' . $stats['total_clients'] . '</h3>';
-        $output .= '<p>Clients with WP</p>';
+        $output .= '<h3>' . $this->formatBytes($stats['disk_usage']) . '</h3>';
+        $output .= '<p>Total Disk Usage</p>';
+        $output .= '</div></div></div>';
+        $output .= '</div>';
+        
+        // Additional stats row
+        $output .= '<div class="row">';
+        $output .= '<div class="col-md-3">';
+        $output .= '<div class="panel panel-default">';
+        $output .= '<div class="panel-body text-center">';
+        $output .= '<h3>' . $stats['total_plugins'] . '</h3>';
+        $output .= '<p>Total Plugins</p>';
+        $output .= '</div></div></div>';
+        
+        $output .= '<div class="col-md-3">';
+        $output .= '<div class="panel panel-default">';
+        $output .= '<div class="panel-body text-center">';
+        $output .= '<h3>' . $stats['total_themes'] . '</h3>';
+        $output .= '<p>Total Themes</p>';
+        $output .= '</div></div></div>';
+        
+        $output .= '<div class="col-md-3">';
+        $output .= '<div class="panel panel-default">';
+        $output .= '<div class="panel-body text-center">';
+        $output .= '<h3>' . $stats['total_backups'] . '</h3>';
+        $output .= '<p>Total Backups</p>';
+        $output .= '</div></div></div>';
+        
+        $output .= '<div class="col-md-3">';
+        $output .= '<div class="panel panel-default">';
+        $output .= '<div class="panel-body text-center">';
+        $output .= '<h3>' . $stats['updates_available'] . '</h3>';
+        $output .= '<p>Updates Available</p>';
         $output .= '</div></div></div>';
         $output .= '</div>';
         
@@ -122,15 +153,15 @@ class SpeedWP_AdminController
         } else {
             $output .= '<div class="table-responsive">';
             $output .= '<table class="table table-striped">';
-            $output .= '<thead><tr><th>Date</th><th>Action</th><th>Site</th><th>Client</th></tr></thead>';
+            $output .= '<thead><tr><th>Date</th><th>Description</th><th>Site</th><th>Client</th></tr></thead>';
             $output .= '<tbody>';
             
             foreach ($recentActivity as $activity) {
                 $output .= '<tr>';
                 $output .= '<td>' . date('Y-m-d H:i', strtotime($activity['created_at'])) . '</td>';
-                $output .= '<td>' . htmlspecialchars($activity['action']) . '</td>';
-                $output .= '<td>' . htmlspecialchars($activity['domain']) . '</td>';
-                $output .= '<td>' . htmlspecialchars($activity['client_name']) . '</td>';
+                $output .= '<td>' . htmlspecialchars($activity['description']) . '</td>';
+                $output .= '<td>' . htmlspecialchars($activity['domain'] . $activity['wp_path']) . '</td>';
+                $output .= '<td>' . htmlspecialchars($activity['client_name'] ?? 'System') . '</td>';
                 $output .= '</tr>';
             }
             
@@ -273,23 +304,68 @@ class SpeedWP_AdminController
     private function getOverviewStats()
     {
         try {
-            // TODO: Implement actual statistics queries
             $stats = [
                 'total_sites' => 0,
                 'active_sites' => 0,
                 'updates_available' => 0,
-                'total_clients' => 0
+                'total_clients' => 0,
+                'total_plugins' => 0,
+                'total_themes' => 0,
+                'total_backups' => 0,
+                'disk_usage' => 0
             ];
             
             // Get total sites
             $query = "SELECT COUNT(*) as count FROM mod_speedwp_sites";
-            $result = full_query($query);
-            if ($result && mysql_num_rows($result) > 0) {
-                $row = mysql_fetch_assoc($result);
-                $stats['total_sites'] = $row['count'];
-            }
+            $stmt = Capsule::connection()->getPdo()->prepare($query);
+            $stmt->execute();
+            $result = $stmt->fetch();
+            $stats['total_sites'] = $result['count'] ?? 0;
             
-            // TODO: Add more statistics queries
+            // Get active sites
+            $query = "SELECT COUNT(*) as count FROM mod_speedwp_sites WHERE status = 'active'";
+            $stmt = Capsule::connection()->getPdo()->prepare($query);
+            $stmt->execute();
+            $result = $stmt->fetch();
+            $stats['active_sites'] = $result['count'] ?? 0;
+            
+            // Get unique clients with WordPress
+            $query = "SELECT COUNT(DISTINCT client_id) as count FROM mod_speedwp_sites WHERE status != 'inactive'";
+            $stmt = Capsule::connection()->getPdo()->prepare($query);
+            $stmt->execute();
+            $result = $stmt->fetch();
+            $stats['total_clients'] = $result['count'] ?? 0;
+            
+            // Get total plugins
+            $query = "SELECT COUNT(*) as count FROM mod_speedwp_plugins";
+            $stmt = Capsule::connection()->getPdo()->prepare($query);
+            $stmt->execute();
+            $result = $stmt->fetch();
+            $stats['total_plugins'] = $result['count'] ?? 0;
+            
+            // Get total themes
+            $query = "SELECT COUNT(*) as count FROM mod_speedwp_themes";
+            $stmt = Capsule::connection()->getPdo()->prepare($query);
+            $stmt->execute();
+            $result = $stmt->fetch();
+            $stats['total_themes'] = $result['count'] ?? 0;
+            
+            // Get total backups
+            $query = "SELECT COUNT(*) as count FROM mod_speedwp_backups WHERE status = 'completed'";
+            $stmt = Capsule::connection()->getPdo()->prepare($query);
+            $stmt->execute();
+            $result = $stmt->fetch();
+            $stats['total_backups'] = $result['count'] ?? 0;
+            
+            // Get total disk usage
+            $query = "SELECT SUM(disk_usage) as total FROM mod_speedwp_sites WHERE status = 'active'";
+            $stmt = Capsule::connection()->getPdo()->prepare($query);
+            $stmt->execute();
+            $result = $stmt->fetch();
+            $stats['disk_usage'] = $result['total'] ?? 0;
+            
+            // TODO: Calculate updates available by checking WordPress versions
+            $stats['updates_available'] = 0;
             
             return $stats;
             
@@ -299,7 +375,11 @@ class SpeedWP_AdminController
                 'total_sites' => 0,
                 'active_sites' => 0,
                 'updates_available' => 0,
-                'total_clients' => 0
+                'total_clients' => 0,
+                'total_plugins' => 0,
+                'total_themes' => 0,
+                'total_backups' => 0,
+                'disk_usage' => 0
             ];
         }
     }
@@ -311,8 +391,40 @@ class SpeedWP_AdminController
      */
     private function getRecentActivity()
     {
-        // TODO: Implement activity log and return recent entries
-        return [];
+        try {
+            $query = "SELECT l.*, s.domain, s.wp_path, 
+                            CONCAT(c.firstname, ' ', c.lastname) as client_name
+                     FROM mod_speedwp_logs l
+                     LEFT JOIN mod_speedwp_sites s ON l.site_id = s.id
+                     LEFT JOIN tblclients c ON l.client_id = c.id
+                     ORDER BY l.created_at DESC
+                     LIMIT 20";
+            
+            $stmt = Capsule::connection()->getPdo()->prepare($query);
+            $stmt->execute();
+            
+            return $stmt->fetchAll(PDO::FETCH_ASSOC);
+            
+        } catch (Exception $e) {
+            logActivity("SpeedWP Error getting recent activity: " . $e->getMessage());
+            return [];
+        }
+    }
+
+    /**
+     * Format bytes to human readable format
+     * 
+     * @param int $bytes
+     * @return string
+     */
+    private function formatBytes($bytes)
+    {
+        if ($bytes == 0) return '0 B';
+        
+        $units = ['B', 'KB', 'MB', 'GB', 'TB'];
+        $i = floor(log($bytes) / log(1024));
+        
+        return round($bytes / pow(1024, $i), 2) . ' ' . $units[$i];
     }
 
     /**

@@ -129,6 +129,30 @@ class SpeedWP_ClientController
                 $this->changeSiteTitle();
                 break;
                 
+            case 'get_plugins':
+                $this->getWordPressPlugins();
+                break;
+                
+            case 'get_themes':
+                $this->getWordPressThemes();
+                break;
+                
+            case 'toggle_plugin':
+                $this->togglePlugin();
+                break;
+                
+            case 'toggle_theme':
+                $this->toggleTheme();
+                break;
+                
+            case 'update_plugin':
+                $this->updatePlugin();
+                break;
+                
+            case 'update_theme':
+                $this->updateTheme();
+                break;
+                
             default:
                 $this->ajaxResponse(['error' => 'Invalid action']);
         }
@@ -751,7 +775,595 @@ class SpeedWP_ClientController
             return $result ? decrypt($result['password']) : '';
             
         } catch (Exception $e) {
-            return '';
+    /**
+     * Get WordPress plugins for a site
+     * 
+     * @return void
+     */
+    private function getWordPressPlugins()
+    {
+        try {
+            $siteId = $_POST['site_id'] ?? 0;
+            
+            // Get site details
+            $site = $this->getSiteDetails($siteId);
+            if (!$site) {
+                throw new Exception('WordPress site not found');
+            }
+            
+            require_once __DIR__ . '/../lib/cpanelApi.php';
+            
+            $cpanel = new SpeedWP_CpanelApi();
+            $cpanel->setCredentials($site['cpanel_user'], $this->getCpanelPassword($site['cpanel_user']));
+            
+            // Get plugins from WordPress installation
+            $plugins = $this->scanWordPressPlugins($cpanel, $site['wp_path']);
+            
+            // Update database with current plugins
+            $this->updatePluginsInDatabase($siteId, $plugins);
+            
+            $this->ajaxResponse([
+                'success' => true,
+                'plugins' => $plugins
+            ]);
+            
+        } catch (Exception $e) {
+            $this->ajaxResponse(['error' => $e->getMessage()]);
+        }
+    }
+
+    /**
+     * Get WordPress themes for a site
+     * 
+     * @return void
+     */
+    private function getWordPressThemes()
+    {
+        try {
+            $siteId = $_POST['site_id'] ?? 0;
+            
+            // Get site details
+            $site = $this->getSiteDetails($siteId);
+            if (!$site) {
+                throw new Exception('WordPress site not found');
+            }
+            
+            require_once __DIR__ . '/../lib/cpanelApi.php';
+            
+            $cpanel = new SpeedWP_CpanelApi();
+            $cpanel->setCredentials($site['cpanel_user'], $this->getCpanelPassword($site['cpanel_user']));
+            
+            // Get themes from WordPress installation
+            $themes = $this->scanWordPressThemes($cpanel, $site['wp_path']);
+            
+            // Update database with current themes
+            $this->updateThemesInDatabase($siteId, $themes);
+            
+            $this->ajaxResponse([
+                'success' => true,
+                'themes' => $themes
+            ]);
+            
+        } catch (Exception $e) {
+            $this->ajaxResponse(['error' => $e->getMessage()]);
+        }
+    }
+
+    /**
+     * Toggle plugin status (activate/deactivate)
+     * 
+     * @return void
+     */
+    private function togglePlugin()
+    {
+        try {
+            $siteId = $_POST['site_id'] ?? 0;
+            $pluginSlug = $_POST['plugin_slug'] ?? '';
+            $activate = $_POST['activate'] ?? false;
+            
+            if (empty($pluginSlug)) {
+                throw new Exception('Plugin slug is required');
+            }
+            
+            // Get site details
+            $site = $this->getSiteDetails($siteId);
+            if (!$site) {
+                throw new Exception('WordPress site not found');
+            }
+            
+            require_once __DIR__ . '/../lib/cpanelApi.php';
+            
+            $cpanel = new SpeedWP_CpanelApi();
+            $cpanel->setCredentials($site['cpanel_user'], $this->getCpanelPassword($site['cpanel_user']));
+            
+            // Toggle plugin status
+            $result = $cpanel->toggleWordPressPlugin($site['wp_path'], $pluginSlug, $activate);
+            
+            if ($result['success']) {
+                // Update database
+                $query = "UPDATE mod_speedwp_plugins 
+                         SET status = :status 
+                         WHERE site_id = :site_id AND plugin_slug = :plugin_slug";
+                
+                $stmt = Capsule::connection()->getPdo()->prepare($query);
+                $stmt->execute([
+                    'status' => $activate ? 'active' : 'inactive',
+                    'site_id' => $siteId,
+                    'plugin_slug' => $pluginSlug
+                ]);
+                
+                $action = $activate ? 'activated' : 'deactivated';
+                $this->logActivity('plugin_toggle', "Plugin '{$pluginSlug}' {$action} for {$site['domain']}{$site['wp_path']}");
+                
+                $this->ajaxResponse([
+                    'success' => true,
+                    'message' => "Plugin {$action} successfully"
+                ]);
+            } else {
+                throw new Exception('Failed to toggle plugin status');
+            }
+            
+        } catch (Exception $e) {
+            $this->logActivity('plugin_toggle', "Plugin toggle failed: " . $e->getMessage(), 'error');
+            $this->ajaxResponse(['error' => $e->getMessage()]);
+        }
+    }
+
+    /**
+     * Toggle theme status (activate)
+     * 
+     * @return void
+     */
+    private function toggleTheme()
+    {
+        try {
+            $siteId = $_POST['site_id'] ?? 0;
+            $themeSlug = $_POST['theme_slug'] ?? '';
+            
+            if (empty($themeSlug)) {
+                throw new Exception('Theme slug is required');
+            }
+            
+            // Get site details
+            $site = $this->getSiteDetails($siteId);
+            if (!$site) {
+                throw new Exception('WordPress site not found');
+            }
+            
+            require_once __DIR__ . '/../lib/cpanelApi.php';
+            
+            $cpanel = new SpeedWP_CpanelApi();
+            $cpanel->setCredentials($site['cpanel_user'], $this->getCpanelPassword($site['cpanel_user']));
+            
+            // Activate theme
+            $result = $cpanel->activateWordPressTheme($site['wp_path'], $themeSlug);
+            
+            if ($result['success']) {
+                // Update database - deactivate all themes first, then activate the selected one
+                $deactivateQuery = "UPDATE mod_speedwp_themes SET status = 'inactive' WHERE site_id = :site_id";
+                $deactivateStmt = Capsule::connection()->getPdo()->prepare($deactivateQuery);
+                $deactivateStmt->execute(['site_id' => $siteId]);
+                
+                $activateQuery = "UPDATE mod_speedwp_themes 
+                                 SET status = 'active' 
+                                 WHERE site_id = :site_id AND theme_slug = :theme_slug";
+                
+                $activateStmt = Capsule::connection()->getPdo()->prepare($activateQuery);
+                $activateStmt->execute([
+                    'site_id' => $siteId,
+                    'theme_slug' => $themeSlug
+                ]);
+                
+                $this->logActivity('theme_activate', "Theme '{$themeSlug}' activated for {$site['domain']}{$site['wp_path']}");
+                
+                $this->ajaxResponse([
+                    'success' => true,
+                    'message' => 'Theme activated successfully'
+                ]);
+            } else {
+                throw new Exception('Failed to activate theme');
+            }
+            
+        } catch (Exception $e) {
+            $this->logActivity('theme_activate', "Theme activation failed: " . $e->getMessage(), 'error');
+            $this->ajaxResponse(['error' => $e->getMessage()]);
+        }
+    }
+
+    /**
+     * Update a WordPress plugin
+     * 
+     * @return void
+     */
+    private function updatePlugin()
+    {
+        try {
+            $siteId = $_POST['site_id'] ?? 0;
+            $pluginSlug = $_POST['plugin_slug'] ?? '';
+            
+            if (empty($pluginSlug)) {
+                throw new Exception('Plugin slug is required');
+            }
+            
+            // Get site details
+            $site = $this->getSiteDetails($siteId);
+            if (!$site) {
+                throw new Exception('WordPress site not found');
+            }
+            
+            require_once __DIR__ . '/../lib/cpanelApi.php';
+            
+            $cpanel = new SpeedWP_CpanelApi();
+            $cpanel->setCredentials($site['cpanel_user'], $this->getCpanelPassword($site['cpanel_user']));
+            
+            // Update plugin
+            $result = $cpanel->updateWordPressPlugin($site['wp_path'], $pluginSlug);
+            
+            if ($result['success']) {
+                // Update database with new version
+                if (isset($result['new_version'])) {
+                    $query = "UPDATE mod_speedwp_plugins 
+                             SET version = :version 
+                             WHERE site_id = :site_id AND plugin_slug = :plugin_slug";
+                    
+                    $stmt = Capsule::connection()->getPdo()->prepare($query);
+                    $stmt->execute([
+                        'version' => $result['new_version'],
+                        'site_id' => $siteId,
+                        'plugin_slug' => $pluginSlug
+                    ]);
+                }
+                
+                $this->logActivity('plugin_update', "Plugin '{$pluginSlug}' updated for {$site['domain']}{$site['wp_path']}");
+                
+                $this->ajaxResponse([
+                    'success' => true,
+                    'message' => 'Plugin updated successfully',
+                    'new_version' => $result['new_version'] ?? null
+                ]);
+            } else {
+                throw new Exception('Failed to update plugin');
+            }
+            
+        } catch (Exception $e) {
+            $this->logActivity('plugin_update', "Plugin update failed: " . $e->getMessage(), 'error');
+            $this->ajaxResponse(['error' => $e->getMessage()]);
+        }
+    }
+
+    /**
+     * Update a WordPress theme
+     * 
+     * @return void
+     */
+    private function updateTheme()
+    {
+        try {
+            $siteId = $_POST['site_id'] ?? 0;
+            $themeSlug = $_POST['theme_slug'] ?? '';
+            
+            if (empty($themeSlug)) {
+                throw new Exception('Theme slug is required');
+            }
+            
+            // Get site details
+            $site = $this->getSiteDetails($siteId);
+            if (!$site) {
+                throw new Exception('WordPress site not found');
+            }
+            
+            require_once __DIR__ . '/../lib/cpanelApi.php';
+            
+            $cpanel = new SpeedWP_CpanelApi();
+            $cpanel->setCredentials($site['cpanel_user'], $this->getCpanelPassword($site['cpanel_user']));
+            
+            // Update theme
+            $result = $cpanel->updateWordPressTheme($site['wp_path'], $themeSlug);
+            
+            if ($result['success']) {
+                // Update database with new version
+                if (isset($result['new_version'])) {
+                    $query = "UPDATE mod_speedwp_themes 
+                             SET version = :version 
+                             WHERE site_id = :site_id AND theme_slug = :theme_slug";
+                    
+                    $stmt = Capsule::connection()->getPdo()->prepare($query);
+                    $stmt->execute([
+                        'version' => $result['new_version'],
+                        'site_id' => $siteId,
+                        'theme_slug' => $themeSlug
+                    ]);
+                }
+                
+                $this->logActivity('theme_update', "Theme '{$themeSlug}' updated for {$site['domain']}{$site['wp_path']}");
+                
+                $this->ajaxResponse([
+                    'success' => true,
+                    'message' => 'Theme updated successfully',
+                    'new_version' => $result['new_version'] ?? null
+                ]);
+            } else {
+                throw new Exception('Failed to update theme');
+            }
+            
+        } catch (Exception $e) {
+            $this->logActivity('theme_update', "Theme update failed: " . $e->getMessage(), 'error');
+            $this->ajaxResponse(['error' => $e->getMessage()]);
+        }
+    }
+
+    /**
+     * Scan WordPress plugins from installation
+     * 
+     * @param SpeedWP_CpanelApi $cpanel
+     * @param string $path
+     * @return array
+     */
+    private function scanWordPressPlugins($cpanel, $path)
+    {
+        $pluginPath = $path . 'wp-content/plugins/';
+        $plugins = [];
+        
+        try {
+            // Get list of plugin directories
+            $pluginDirs = $cpanel->executeApiCall('Fileman', 'list_files', [
+                'path' => $pluginPath,
+                'include_mime' => 0
+            ]);
+            
+            if (isset($pluginDirs['data'])) {
+                foreach ($pluginDirs['data'] as $dir) {
+                    if ($dir['type'] === 'dir' && $dir['file'] !== '.' && $dir['file'] !== '..') {
+                        // Look for main plugin file
+                        $pluginMainFile = $pluginPath . $dir['file'] . '/' . $dir['file'] . '.php';
+                        
+                        // Try to read plugin header
+                        try {
+                            $pluginContent = $cpanel->readFile($pluginMainFile);
+                            $pluginInfo = $this->parsePluginHeader($pluginContent);
+                            
+                            $plugins[] = [
+                                'slug' => $dir['file'],
+                                'name' => $pluginInfo['name'] ?: $dir['file'],
+                                'version' => $pluginInfo['version'] ?: 'Unknown',
+                                'description' => $pluginInfo['description'] ?: '',
+                                'status' => $this->getPluginStatus($cpanel, $path, $dir['file'])
+                            ];
+                        } catch (Exception $e) {
+                            // Plugin main file not found or readable, add with minimal info
+                            $plugins[] = [
+                                'slug' => $dir['file'],
+                                'name' => $dir['file'],
+                                'version' => 'Unknown',
+                                'description' => '',
+                                'status' => 'inactive'
+                            ];
+                        }
+                    }
+                }
+            }
+        } catch (Exception $e) {
+            // Plugin directory not accessible
+        }
+        
+        return $plugins;
+    }
+
+    /**
+     * Scan WordPress themes from installation
+     * 
+     * @param SpeedWP_CpanelApi $cpanel
+     * @param string $path
+     * @return array
+     */
+    private function scanWordPressThemes($cpanel, $path)
+    {
+        $themePath = $path . 'wp-content/themes/';
+        $themes = [];
+        
+        try {
+            // Get list of theme directories
+            $themeDirs = $cpanel->executeApiCall('Fileman', 'list_files', [
+                'path' => $themePath,
+                'include_mime' => 0
+            ]);
+            
+            if (isset($themeDirs['data'])) {
+                foreach ($themeDirs['data'] as $dir) {
+                    if ($dir['type'] === 'dir' && $dir['file'] !== '.' && $dir['file'] !== '..') {
+                        // Look for style.css
+                        $themeStyleFile = $themePath . $dir['file'] . '/style.css';
+                        
+                        try {
+                            $themeContent = $cpanel->readFile($themeStyleFile);
+                            $themeInfo = $this->parseThemeHeader($themeContent);
+                            
+                            $themes[] = [
+                                'slug' => $dir['file'],
+                                'name' => $themeInfo['name'] ?: $dir['file'],
+                                'version' => $themeInfo['version'] ?: 'Unknown',
+                                'description' => $themeInfo['description'] ?: '',
+                                'status' => $this->getThemeStatus($cpanel, $path, $dir['file'])
+                            ];
+                        } catch (Exception $e) {
+                            // Theme style.css not found, add with minimal info
+                            $themes[] = [
+                                'slug' => $dir['file'],
+                                'name' => $dir['file'],
+                                'version' => 'Unknown',
+                                'description' => '',
+                                'status' => 'inactive'
+                            ];
+                        }
+                    }
+                }
+            }
+        } catch (Exception $e) {
+            // Theme directory not accessible
+        }
+        
+        return $themes;
+    }
+
+    /**
+     * Parse plugin header information
+     * 
+     * @param string $content
+     * @return array
+     */
+    private function parsePluginHeader($content)
+    {
+        $info = ['name' => '', 'version' => '', 'description' => ''];
+        
+        if (preg_match('/Plugin Name:\s*(.+)/i', $content, $matches)) {
+            $info['name'] = trim($matches[1]);
+        }
+        
+        if (preg_match('/Version:\s*(.+)/i', $content, $matches)) {
+            $info['version'] = trim($matches[1]);
+        }
+        
+        if (preg_match('/Description:\s*(.+)/i', $content, $matches)) {
+            $info['description'] = trim($matches[1]);
+        }
+        
+        return $info;
+    }
+
+    /**
+     * Parse theme header information
+     * 
+     * @param string $content
+     * @return array
+     */
+    private function parseThemeHeader($content)
+    {
+        $info = ['name' => '', 'version' => '', 'description' => ''];
+        
+        if (preg_match('/Theme Name:\s*(.+)/i', $content, $matches)) {
+            $info['name'] = trim($matches[1]);
+        }
+        
+        if (preg_match('/Version:\s*(.+)/i', $content, $matches)) {
+            $info['version'] = trim($matches[1]);
+        }
+        
+        if (preg_match('/Description:\s*(.+)/i', $content, $matches)) {
+            $info['description'] = trim($matches[1]);
+        }
+        
+        return $info;
+    }
+
+    /**
+     * Get plugin activation status
+     * 
+     * @param SpeedWP_CpanelApi $cpanel
+     * @param string $path
+     * @param string $pluginSlug
+     * @return string
+     */
+    private function getPluginStatus($cpanel, $path, $pluginSlug)
+    {
+        // TODO: Read active plugins from WordPress options table or wp-config
+        // For now, return inactive as default
+        return 'inactive';
+    }
+
+    /**
+     * Get theme activation status
+     * 
+     * @param SpeedWP_CpanelApi $cpanel
+     * @param string $path
+     * @param string $themeSlug
+     * @return string
+     */
+    private function getThemeStatus($cpanel, $path, $themeSlug)
+    {
+        // TODO: Read active theme from WordPress options table
+        // For now, return inactive as default
+        return 'inactive';
+    }
+
+    /**
+     * Update plugins in database
+     * 
+     * @param int $siteId
+     * @param array $plugins
+     * @return void
+     */
+    private function updatePluginsInDatabase($siteId, $plugins)
+    {
+        try {
+            // Clear existing plugins for this site
+            $deleteQuery = "DELETE FROM mod_speedwp_plugins WHERE site_id = :site_id";
+            $deleteStmt = Capsule::connection()->getPdo()->prepare($deleteQuery);
+            $deleteStmt->execute(['site_id' => $siteId]);
+            
+            // Insert current plugins
+            foreach ($plugins as $plugin) {
+                $insertQuery = "INSERT INTO mod_speedwp_plugins 
+                               (site_id, plugin_name, plugin_slug, version, status, created_at) 
+                               VALUES (:site_id, :plugin_name, :plugin_slug, :version, :status, NOW())";
+                
+                $insertStmt = Capsule::connection()->getPdo()->prepare($insertQuery);
+                $insertStmt->execute([
+                    'site_id' => $siteId,
+                    'plugin_name' => $plugin['name'],
+                    'plugin_slug' => $plugin['slug'],
+                    'version' => $plugin['version'],
+                    'status' => $plugin['status']
+                ]);
+            }
+            
+            // Update plugin count in sites table
+            $countQuery = "UPDATE mod_speedwp_sites SET plugin_count = :count WHERE id = :site_id";
+            $countStmt = Capsule::connection()->getPdo()->prepare($countQuery);
+            $countStmt->execute(['count' => count($plugins), 'site_id' => $siteId]);
+            
+        } catch (Exception $e) {
+            logActivity("SpeedWP Error updating plugins in database: " . $e->getMessage());
+        }
+    }
+
+    /**
+     * Update themes in database
+     * 
+     * @param int $siteId
+     * @param array $themes
+     * @return void
+     */
+    private function updateThemesInDatabase($siteId, $themes)
+    {
+        try {
+            // Clear existing themes for this site
+            $deleteQuery = "DELETE FROM mod_speedwp_themes WHERE site_id = :site_id";
+            $deleteStmt = Capsule::connection()->getPdo()->prepare($deleteQuery);
+            $deleteStmt->execute(['site_id' => $siteId]);
+            
+            // Insert current themes
+            foreach ($themes as $theme) {
+                $insertQuery = "INSERT INTO mod_speedwp_themes 
+                               (site_id, theme_name, theme_slug, version, status, created_at) 
+                               VALUES (:site_id, :theme_name, :theme_slug, :version, :status, NOW())";
+                
+                $insertStmt = Capsule::connection()->getPdo()->prepare($insertQuery);
+                $insertStmt->execute([
+                    'site_id' => $siteId,
+                    'theme_name' => $theme['name'],
+                    'theme_slug' => $theme['slug'],
+                    'version' => $theme['version'],
+                    'status' => $theme['status']
+                ]);
+            }
+            
+            // Update theme count in sites table
+            $countQuery = "UPDATE mod_speedwp_sites SET theme_count = :count WHERE id = :site_id";
+            $countStmt = Capsule::connection()->getPdo()->prepare($countQuery);
+            $countStmt->execute(['count' => count($themes), 'site_id' => $siteId]);
+            
+        } catch (Exception $e) {
+            logActivity("SpeedWP Error updating themes in database: " . $e->getMessage());
         }
     }
 

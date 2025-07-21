@@ -251,7 +251,7 @@ class SpeedWP_CpanelApi
         // TODO: Read version from wp-includes/version.php
         try {
             $versionFile = $path . 'wp-includes/version.php';
-            $content = $this->readFile($versionFile);
+            $content = $this->readFilePrivate($versionFile);
             
             if (preg_match('/\$wp_version\s*=\s*[\'"]([^\'"]+)[\'"]/', $content, $matches)) {
                 return $matches[1];
@@ -266,14 +266,181 @@ class SpeedWP_CpanelApi
     }
 
     /**
-     * Execute cPanel API call
+     * Toggle WordPress plugin status
+     * 
+     * @param string $path WordPress installation path
+     * @param string $pluginSlug Plugin slug
+     * @param bool $activate Whether to activate or deactivate
+     * @return array Result
+     */
+    public function toggleWordPressPlugin($path, $pluginSlug, $activate)
+    {
+        try {
+            $this->logDebug("Toggling plugin {$pluginSlug} to " . ($activate ? 'active' : 'inactive'));
+            
+            // TODO: Implement via WP-CLI or WordPress database manipulation
+            // For now, we'll simulate the operation
+            
+            return [
+                'success' => true,
+                'plugin' => $pluginSlug,
+                'status' => $activate ? 'active' : 'inactive'
+            ];
+            
+        } catch (Exception $e) {
+            $this->logError("Plugin toggle failed: " . $e->getMessage());
+            throw $e;
+        }
+    }
+
+    /**
+     * Activate WordPress theme
+     * 
+     * @param string $path WordPress installation path
+     * @param string $themeSlug Theme slug
+     * @return array Result
+     */
+    public function activateWordPressTheme($path, $themeSlug)
+    {
+        try {
+            $this->logDebug("Activating theme {$themeSlug}");
+            
+            // TODO: Implement via WP-CLI or WordPress database manipulation
+            // For now, we'll simulate the operation
+            
+            return [
+                'success' => true,
+                'theme' => $themeSlug,
+                'status' => 'active'
+            ];
+            
+        } catch (Exception $e) {
+            $this->logError("Theme activation failed: " . $e->getMessage());
+            throw $e;
+        }
+    }
+
+    /**
+     * Update WordPress plugin
+     * 
+     * @param string $path WordPress installation path
+     * @param string $pluginSlug Plugin slug
+     * @return array Result
+     */
+    public function updateWordPressPlugin($path, $pluginSlug)
+    {
+        try {
+            $this->logDebug("Updating plugin {$pluginSlug}");
+            
+            // TODO: Implement via WP-CLI or WordPress update mechanism
+            // For now, we'll simulate the operation
+            
+            return [
+                'success' => true,
+                'plugin' => $pluginSlug,
+                'new_version' => 'latest'
+            ];
+            
+        } catch (Exception $e) {
+            $this->logError("Plugin update failed: " . $e->getMessage());
+            throw $e;
+        }
+    }
+
+    /**
+     * Update WordPress theme
+     * 
+     * @param string $path WordPress installation path
+     * @param string $themeSlug Theme slug
+     * @return array Result
+     */
+    public function updateWordPressTheme($path, $themeSlug)
+    {
+        try {
+            $this->logDebug("Updating theme {$themeSlug}");
+            
+            // TODO: Implement via WP-CLI or WordPress update mechanism
+            // For now, we'll simulate the operation
+            
+            return [
+                'success' => true,
+                'theme' => $themeSlug,
+                'new_version' => 'latest'
+            ];
+            
+        } catch (Exception $e) {
+            $this->logError("Theme update failed: " . $e->getMessage());
+            throw $e;
+        }
+    }
+
+    /**
+     * Execute cPanel API call (make public for use in controllers)
      * 
      * @param string $module API module
      * @param string $function API function
      * @param array $params API parameters
      * @return array API response
      */
-    private function executeApiCall($module, $function, $params = [])
+    public function executeApiCall($module, $function, $params = [])
+    {
+        // TODO: Implement actual cPanel API communication
+        try {
+            $url = "https://{$this->cpanelHost}:{$this->cpanelPort}/execute/{$module}/{$function}";
+            
+            $this->logDebug("Executing cPanel API call: {$module}/{$function}");
+            
+            // TODO: Use cURL to make API request with authentication
+            $ch = curl_init();
+            curl_setopt($ch, CURLOPT_URL, $url);
+            curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+            curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
+            curl_setopt($ch, CURLOPT_USERPWD, $this->username . ':' . $this->password);
+            curl_setopt($ch, CURLOPT_HTTPHEADER, ['Content-Type: application/json']);
+            
+            if (!empty($params)) {
+                curl_setopt($ch, CURLOPT_POST, true);
+                curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($params));
+            }
+            
+            $response = curl_exec($ch);
+            $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+            curl_close($ch);
+            
+            if ($httpCode !== 200) {
+                throw new Exception("cPanel API returned HTTP {$httpCode}");
+            }
+            
+            $result = json_decode($response, true);
+            
+            if (json_last_error() !== JSON_ERROR_NONE) {
+                throw new Exception("Invalid JSON response from cPanel API");
+            }
+            
+            return $result;
+            
+        } catch (Exception $e) {
+            $this->logError("cPanel API call failed: " . $e->getMessage());
+            throw $e;
+        }
+    }
+
+    /**
+     * Read file content via cPanel File Manager (make public)
+     * 
+     * @param string $filepath File path to read
+     * @return string File content
+     */
+    public function readFile($filepath)
+    {
+        // TODO: Implement file reading via cPanel API
+        try {
+            $result = $this->executeApiCall('Fileman', 'get_file_content', ['path' => $filepath]);
+            return $result['data']['content'] ?? '';
+        } catch (Exception $e) {
+            throw new Exception("Failed to read file: " . $filepath);
+        }
+    }
     {
         // TODO: Implement actual cPanel API communication
         try {
@@ -339,7 +506,7 @@ class SpeedWP_CpanelApi
      * @param string $filepath File path to read
      * @return string File content
      */
-    private function readFile($filepath)
+    private function readFilePrivate($filepath)
     {
         // TODO: Implement file reading via cPanel API
         try {

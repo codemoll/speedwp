@@ -426,13 +426,313 @@ function changeSiteTitle(siteId) {
 }
 
 function managePlugins(siteId) {
-    alert('Plugin management interface coming soon!');
-    // TODO: Implement plugin management modal
+    showLoading();
+    
+    // Get plugins list
+    $.ajax({
+        url: 'index.php?m=speedwp&action=ajax',
+        method: 'POST',
+        data: {
+            action: 'get_plugins',
+            site_id: siteId
+        },
+        success: function(response) {
+            hideLoading();
+            if (response.success) {
+                showPluginModal(siteId, response.plugins);
+            } else {
+                alert('Error: ' + (response.error || 'Failed to load plugins'));
+            }
+        },
+        error: function() {
+            hideLoading();
+            alert('Communication error. Please try again.');
+        }
+    });
 }
 
 function manageThemes(siteId) {
-    alert('Theme management interface coming soon!');
-    // TODO: Implement theme management modal
+    showLoading();
+    
+    // Get themes list
+    $.ajax({
+        url: 'index.php?m=speedwp&action=ajax',
+        method: 'POST',
+        data: {
+            action: 'get_themes',
+            site_id: siteId
+        },
+        success: function(response) {
+            hideLoading();
+            if (response.success) {
+                showThemeModal(siteId, response.themes);
+            } else {
+                alert('Error: ' + (response.error || 'Failed to load themes'));
+            }
+        },
+        error: function() {
+            hideLoading();
+            alert('Communication error. Please try again.');
+        }
+    });
+}
+
+function showPluginModal(siteId, plugins) {
+    var pluginRows = '';
+    plugins.forEach(function(plugin) {
+        var statusBadge = plugin.status === 'active' ? 
+            '<span class="label label-success">Active</span>' : 
+            '<span class="label label-default">Inactive</span>';
+        
+        var toggleButton = plugin.status === 'active' ? 
+            `<button class="btn btn-warning btn-xs" onclick="togglePlugin(${siteId}, '${plugin.slug}', false)">Deactivate</button>` :
+            `<button class="btn btn-success btn-xs" onclick="togglePlugin(${siteId}, '${plugin.slug}', true)">Activate</button>`;
+        
+        pluginRows += `
+            <tr>
+                <td><strong>${plugin.name}</strong><br><small>${plugin.slug}</small></td>
+                <td>${plugin.version}</td>
+                <td>${statusBadge}</td>
+                <td>
+                    ${toggleButton}
+                    <button class="btn btn-info btn-xs" onclick="updatePlugin(${siteId}, '${plugin.slug}')">Update</button>
+                </td>
+            </tr>
+        `;
+    });
+    
+    var modalHtml = `
+        <div class="modal fade" id="pluginModal" tabindex="-1">
+            <div class="modal-dialog modal-lg">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <button type="button" class="close" data-dismiss="modal">&times;</button>
+                        <h4 class="modal-title">Plugin Management</h4>
+                    </div>
+                    <div class="modal-body">
+                        <div class="table-responsive">
+                            <table class="table table-striped">
+                                <thead>
+                                    <tr>
+                                        <th>Plugin</th>
+                                        <th>Version</th>
+                                        <th>Status</th>
+                                        <th>Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    ${pluginRows}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-default" data-dismiss="modal">Close</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    `;
+    
+    $('body').append(modalHtml);
+    $('#pluginModal').modal('show');
+    $('#pluginModal').on('hidden.bs.modal', function () {
+        $(this).remove();
+    });
+}
+
+function showThemeModal(siteId, themes) {
+    var themeRows = '';
+    themes.forEach(function(theme) {
+        var statusBadge = theme.status === 'active' ? 
+            '<span class="label label-primary">Active</span>' : 
+            '<span class="label label-default">Inactive</span>';
+        
+        var activateButton = theme.status === 'active' ? 
+            '<button class="btn btn-default btn-xs" disabled>Current Theme</button>' :
+            `<button class="btn btn-primary btn-xs" onclick="activateTheme(${siteId}, '${theme.slug}')">Activate</button>`;
+        
+        themeRows += `
+            <tr>
+                <td><strong>${theme.name}</strong><br><small>${theme.slug}</small></td>
+                <td>${theme.version}</td>
+                <td>${statusBadge}</td>
+                <td>
+                    ${activateButton}
+                    <button class="btn btn-info btn-xs" onclick="updateTheme(${siteId}, '${theme.slug}')">Update</button>
+                </td>
+            </tr>
+        `;
+    });
+    
+    var modalHtml = `
+        <div class="modal fade" id="themeModal" tabindex="-1">
+            <div class="modal-dialog modal-lg">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <button type="button" class="close" data-dismiss="modal">&times;</button>
+                        <h4 class="modal-title">Theme Management</h4>
+                    </div>
+                    <div class="modal-body">
+                        <div class="table-responsive">
+                            <table class="table table-striped">
+                                <thead>
+                                    <tr>
+                                        <th>Theme</th>
+                                        <th>Version</th>
+                                        <th>Status</th>
+                                        <th>Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    ${themeRows}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-default" data-dismiss="modal">Close</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    `;
+    
+    $('body').append(modalHtml);
+    $('#themeModal').modal('show');
+    $('#themeModal').on('hidden.bs.modal', function () {
+        $(this).remove();
+    });
+}
+
+function togglePlugin(siteId, pluginSlug, activate) {
+    var action = activate ? 'activate' : 'deactivate';
+    if (!confirm(`${action.charAt(0).toUpperCase() + action.slice(1)} plugin "${pluginSlug}"?`)) {
+        return;
+    }
+    
+    showLoading();
+    
+    $.ajax({
+        url: 'index.php?m=speedwp&action=ajax',
+        method: 'POST',
+        data: {
+            action: 'toggle_plugin',
+            site_id: siteId,
+            plugin_slug: pluginSlug,
+            activate: activate
+        },
+        success: function(response) {
+            hideLoading();
+            if (response.success) {
+                alert(`Plugin ${action}d successfully!`);
+                $('#pluginModal').modal('hide');
+                managePlugins(siteId); // Refresh the list
+            } else {
+                alert('Error: ' + (response.error || `Plugin ${action} failed`));
+            }
+        },
+        error: function() {
+            hideLoading();
+            alert('Communication error. Please try again.');
+        }
+    });
+}
+
+function activateTheme(siteId, themeSlug) {
+    if (!confirm(`Activate theme "${themeSlug}"?`)) {
+        return;
+    }
+    
+    showLoading();
+    
+    $.ajax({
+        url: 'index.php?m=speedwp&action=ajax',
+        method: 'POST',
+        data: {
+            action: 'toggle_theme',
+            site_id: siteId,
+            theme_slug: themeSlug
+        },
+        success: function(response) {
+            hideLoading();
+            if (response.success) {
+                alert('Theme activated successfully!');
+                $('#themeModal').modal('hide');
+                manageThemes(siteId); // Refresh the list
+            } else {
+                alert('Error: ' + (response.error || 'Theme activation failed'));
+            }
+        },
+        error: function() {
+            hideLoading();
+            alert('Communication error. Please try again.');
+        }
+    });
+}
+
+function updatePlugin(siteId, pluginSlug) {
+    if (!confirm(`Update plugin "${pluginSlug}"?`)) {
+        return;
+    }
+    
+    showLoading();
+    
+    $.ajax({
+        url: 'index.php?m=speedwp&action=ajax',
+        method: 'POST',
+        data: {
+            action: 'update_plugin',
+            site_id: siteId,
+            plugin_slug: pluginSlug
+        },
+        success: function(response) {
+            hideLoading();
+            if (response.success) {
+                alert('Plugin updated successfully!');
+                $('#pluginModal').modal('hide');
+                managePlugins(siteId); // Refresh the list
+            } else {
+                alert('Error: ' + (response.error || 'Plugin update failed'));
+            }
+        },
+        error: function() {
+            hideLoading();
+            alert('Communication error. Please try again.');
+        }
+    });
+}
+
+function updateTheme(siteId, themeSlug) {
+    if (!confirm(`Update theme "${themeSlug}"?`)) {
+        return;
+    }
+    
+    showLoading();
+    
+    $.ajax({
+        url: 'index.php?m=speedwp&action=ajax',
+        method: 'POST',
+        data: {
+            action: 'update_theme',
+            site_id: siteId,
+            theme_slug: themeSlug
+        },
+        success: function(response) {
+            hideLoading();
+            if (response.success) {
+                alert('Theme updated successfully!');
+                $('#themeModal').modal('hide');
+                manageThemes(siteId); // Refresh the list
+            } else {
+                alert('Error: ' + (response.error || 'Theme update failed'));
+            }
+        },
+        error: function() {
+            hideLoading();
+            alert('Communication error. Please try again.');
+        }
+    });
 }
 
 function viewBackups(siteId) {
