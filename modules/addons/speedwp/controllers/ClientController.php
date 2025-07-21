@@ -14,6 +14,8 @@ if (!defined("WHMCS")) {
     die("This file cannot be accessed directly");
 }
 
+use Illuminate\Database\Capsule\Manager as Capsule;
+
 class SpeedWP_ClientController
 {
     /**
@@ -996,6 +998,10 @@ class SpeedWP_ClientController
             return $result ? decrypt($result['password']) : '';
             
         } catch (Exception $e) {
+            logActivity("SpeedWP Error getting cPanel password: " . $e->getMessage());
+            return '';
+        }
+    }
     /**
      * Get WordPress plugins for a site
      * 

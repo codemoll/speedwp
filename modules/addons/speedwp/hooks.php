@@ -14,6 +14,9 @@ if (!defined("WHMCS")) {
     die("This file cannot be accessed directly");
 }
 
+use Illuminate\Database\Capsule\Manager as Capsule;
+use WHMCS\View\Menu\Item as MenuItem;
+
 /**
  * Hook: After hosting account activation
  * Automatically detect and register WordPress installations, optionally auto-install WordPress
