@@ -28,7 +28,6 @@ function speedwp_config()
         'author' => 'SpeedWP Team',
         'language' => 'english',
         'fields' => [
-            // TODO: Add configuration fields for cPanel integration
             'cpanel_host' => [
                 'FriendlyName' => 'cPanel Host',
                 'Type' => 'text',
@@ -43,12 +42,38 @@ function speedwp_config()
                 'Default' => '2083',
                 'Description' => 'cPanel HTTPS port (usually 2083)',
             ],
+            'auto_install_wp' => [
+                'FriendlyName' => 'Auto-Install WordPress',
+                'Type' => 'yesno',
+                'Description' => 'Automatically install WordPress on new hosting accounts',
+            ],
+            'auto_create_ftp' => [
+                'FriendlyName' => 'Auto-Create FTP Accounts',
+                'Type' => 'yesno',
+                'Description' => 'Automatically create FTP accounts for WordPress sites',
+            ],
+            'include_ftp_in_email' => [
+                'FriendlyName' => 'Include FTP in Welcome Email',
+                'Type' => 'yesno',
+                'Description' => 'Include FTP credentials in welcome emails',
+            ],
+            'auto_backup_before_update' => [
+                'FriendlyName' => 'Auto-Backup Before Updates',
+                'Type' => 'yesno',
+                'Description' => 'Automatically create backups before WordPress updates',
+            ],
+            'backup_retention_days' => [
+                'FriendlyName' => 'Backup Retention (Days)',
+                'Type' => 'text',
+                'Size' => '5',
+                'Default' => '30',
+                'Description' => 'Number of days to keep backups (0 = keep forever)',
+            ],
             'debug_mode' => [
                 'FriendlyName' => 'Debug Mode',
                 'Type' => 'yesno',
                 'Description' => 'Enable debug logging for troubleshooting',
             ],
-            // TODO: Add more configuration options as needed
         ]
     ];
 }
@@ -60,9 +85,9 @@ function speedwp_config()
  */
 function speedwp_activate()
 {
-    // TODO: Create necessary database tables for WordPress site management
+    // Create necessary database tables for WordPress site management
     try {
-        // Example table creation (implement as needed)
+        // Main WordPress sites table
         $query = "CREATE TABLE IF NOT EXISTS `mod_speedwp_sites` (
             `id` int(10) NOT NULL AUTO_INCREMENT,
             `client_id` int(10) NOT NULL,
@@ -70,18 +95,123 @@ function speedwp_activate()
             `cpanel_user` varchar(50) NOT NULL,
             `wp_path` varchar(255) NOT NULL DEFAULT '/',
             `wp_version` varchar(20) DEFAULT NULL,
-            `status` enum('active','inactive','suspended') DEFAULT 'active',
+            `status` enum('active','inactive','suspended','updating','installing') DEFAULT 'active',
+            `admin_username` varchar(50) DEFAULT NULL,
+            `admin_password` text DEFAULT NULL,
+            `admin_email` varchar(255) DEFAULT NULL,
+            `site_title` varchar(255) DEFAULT NULL,
+            `site_url` varchar(255) DEFAULT NULL,
+            `admin_url` varchar(255) DEFAULT NULL,
+            `ftp_username` varchar(50) DEFAULT NULL,
+            `ftp_password` text DEFAULT NULL,
+            `database_name` varchar(64) DEFAULT NULL,
+            `database_user` varchar(64) DEFAULT NULL,
+            `database_password` text DEFAULT NULL,
+            `ssl_enabled` tinyint(1) DEFAULT 0,
+            `maintenance_mode` tinyint(1) DEFAULT 0,
+            `auto_update` tinyint(1) DEFAULT 1,
+            `backup_enabled` tinyint(1) DEFAULT 1,
+            `last_backup` datetime DEFAULT NULL,
+            `last_update_check` datetime DEFAULT NULL,
+            `disk_usage` bigint(20) DEFAULT 0,
+            `file_count` int(10) DEFAULT 0,
+            `plugin_count` int(10) DEFAULT 0,
+            `theme_count` int(10) DEFAULT 0,
             `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
             `updated_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
             PRIMARY KEY (`id`),
-            KEY `client_id` (`client_id`)
+            KEY `client_id` (`client_id`),
+            KEY `domain` (`domain`),
+            KEY `cpanel_user` (`cpanel_user`),
+            KEY `status` (`status`)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8;";
         
         full_query($query);
         
+        // WordPress plugins table
+        $pluginsQuery = "CREATE TABLE IF NOT EXISTS `mod_speedwp_plugins` (
+            `id` int(10) NOT NULL AUTO_INCREMENT,
+            `site_id` int(10) NOT NULL,
+            `plugin_name` varchar(255) NOT NULL,
+            `plugin_slug` varchar(255) NOT NULL,
+            `version` varchar(20) DEFAULT NULL,
+            `status` enum('active','inactive') DEFAULT 'inactive',
+            `auto_update` tinyint(1) DEFAULT 0,
+            `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            `updated_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+            PRIMARY KEY (`id`),
+            KEY `site_id` (`site_id`),
+            KEY `plugin_slug` (`plugin_slug`),
+            FOREIGN KEY (`site_id`) REFERENCES `mod_speedwp_sites`(`id`) ON DELETE CASCADE
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8;";
+        
+        full_query($pluginsQuery);
+        
+        // WordPress themes table
+        $themesQuery = "CREATE TABLE IF NOT EXISTS `mod_speedwp_themes` (
+            `id` int(10) NOT NULL AUTO_INCREMENT,
+            `site_id` int(10) NOT NULL,
+            `theme_name` varchar(255) NOT NULL,
+            `theme_slug` varchar(255) NOT NULL,
+            `version` varchar(20) DEFAULT NULL,
+            `status` enum('active','inactive') DEFAULT 'inactive',
+            `auto_update` tinyint(1) DEFAULT 0,
+            `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            `updated_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+            PRIMARY KEY (`id`),
+            KEY `site_id` (`site_id`),
+            KEY `theme_slug` (`theme_slug`),
+            FOREIGN KEY (`site_id`) REFERENCES `mod_speedwp_sites`(`id`) ON DELETE CASCADE
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8;";
+        
+        full_query($themesQuery);
+        
+        // WordPress backups table
+        $backupsQuery = "CREATE TABLE IF NOT EXISTS `mod_speedwp_backups` (
+            `id` int(10) NOT NULL AUTO_INCREMENT,
+            `site_id` int(10) NOT NULL,
+            `backup_name` varchar(255) NOT NULL,
+            `backup_type` enum('full','files','database') DEFAULT 'full',
+            `file_path` varchar(500) DEFAULT NULL,
+            `file_size` bigint(20) DEFAULT 0,
+            `status` enum('creating','completed','failed','deleted') DEFAULT 'creating',
+            `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            `updated_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+            PRIMARY KEY (`id`),
+            KEY `site_id` (`site_id`),
+            KEY `backup_type` (`backup_type`),
+            KEY `status` (`status`),
+            FOREIGN KEY (`site_id`) REFERENCES `mod_speedwp_sites`(`id`) ON DELETE CASCADE
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8;";
+        
+        full_query($backupsQuery);
+        
+        // Activity logs table
+        $logsQuery = "CREATE TABLE IF NOT EXISTS `mod_speedwp_logs` (
+            `id` int(10) NOT NULL AUTO_INCREMENT,
+            `site_id` int(10) DEFAULT NULL,
+            `client_id` int(10) DEFAULT NULL,
+            `action` varchar(100) NOT NULL,
+            `description` text DEFAULT NULL,
+            `status` enum('success','error','warning','info') DEFAULT 'info',
+            `details` text DEFAULT NULL,
+            `ip_address` varchar(45) DEFAULT NULL,
+            `user_agent` text DEFAULT NULL,
+            `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (`id`),
+            KEY `site_id` (`site_id`),
+            KEY `client_id` (`client_id`),
+            KEY `action` (`action`),
+            KEY `status` (`status`),
+            KEY `created_at` (`created_at`),
+            FOREIGN KEY (`site_id`) REFERENCES `mod_speedwp_sites`(`id`) ON DELETE SET NULL
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8;";
+        
+        full_query($logsQuery);
+        
         return [
             'status' => 'success',
-            'description' => 'SpeedWP addon activated successfully.'
+            'description' => 'SpeedWP addon activated successfully. Database tables created.'
         ];
     } catch (Exception $e) {
         return [
