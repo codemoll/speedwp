@@ -311,7 +311,7 @@ function resetPassword(siteId) {
     showLoading();
     
     $.ajax({
-        url: 'index.php?m=speedwp&action=ajax',
+        url: 'index.php?m=speedwp',
         method: 'POST',
         data: {
             action: 'reset_password',
@@ -343,7 +343,7 @@ function toggleMaintenance(siteId, currentStatus) {
     showLoading();
     
     $.ajax({
-        url: 'index.php?m=speedwp&action=ajax',
+        url: 'index.php?m=speedwp',
         method: 'POST',
         data: {
             action: 'toggle_maintenance',
@@ -373,7 +373,7 @@ function changePassword(siteId) {
     showLoading();
     
     $.ajax({
-        url: 'index.php?m=speedwp&action=ajax',
+        url: 'index.php?m=speedwp',
         method: 'POST',
         data: {
             action: 'change_password',
@@ -402,7 +402,7 @@ function changeSiteTitle(siteId) {
     showLoading();
     
     $.ajax({
-        url: 'index.php?m=speedwp&action=ajax',
+        url: 'index.php?m=speedwp',
         method: 'POST',
         data: {
             action: 'change_site_title',
@@ -430,7 +430,7 @@ function managePlugins(siteId) {
     
     // Get plugins list
     $.ajax({
-        url: 'index.php?m=speedwp&action=ajax',
+        url: 'index.php?m=speedwp',
         method: 'POST',
         data: {
             action: 'get_plugins',
@@ -456,7 +456,7 @@ function manageThemes(siteId) {
     
     // Get themes list
     $.ajax({
-        url: 'index.php?m=speedwp&action=ajax',
+        url: 'index.php?m=speedwp',
         method: 'POST',
         data: {
             action: 'get_themes',
@@ -614,7 +614,7 @@ function togglePlugin(siteId, pluginSlug, activate) {
     showLoading();
     
     $.ajax({
-        url: 'index.php?m=speedwp&action=ajax',
+        url: 'index.php?m=speedwp',
         method: 'POST',
         data: {
             action: 'toggle_plugin',
@@ -647,7 +647,7 @@ function activateTheme(siteId, themeSlug) {
     showLoading();
     
     $.ajax({
-        url: 'index.php?m=speedwp&action=ajax',
+        url: 'index.php?m=speedwp',
         method: 'POST',
         data: {
             action: 'toggle_theme',
@@ -679,7 +679,7 @@ function updatePlugin(siteId, pluginSlug) {
     showLoading();
     
     $.ajax({
-        url: 'index.php?m=speedwp&action=ajax',
+        url: 'index.php?m=speedwp',
         method: 'POST',
         data: {
             action: 'update_plugin',
@@ -711,7 +711,7 @@ function updateTheme(siteId, themeSlug) {
     showLoading();
     
     $.ajax({
-        url: 'index.php?m=speedwp&action=ajax',
+        url: 'index.php?m=speedwp',
         method: 'POST',
         data: {
             action: 'update_theme',
@@ -740,7 +740,7 @@ function viewBackups(siteId) {
     
     // Get backups list
     $.ajax({
-        url: 'index.php?m=speedwp&action=ajax',
+        url: 'index.php?m=speedwp',
         method: 'POST',
         data: {
             action: 'get_backups',
@@ -861,7 +861,7 @@ function createNewBackup(siteId) {
     showLoading();
     
     $.ajax({
-        url: 'index.php?m=speedwp&action=ajax',
+        url: 'index.php?m=speedwp',
         method: 'POST',
         data: {
             action: 'backup_wordpress',
@@ -892,7 +892,7 @@ function restoreBackup(siteId, backupId) {
     showLoading();
     
     $.ajax({
-        url: 'index.php?m=speedwp&action=ajax',
+        url: 'index.php?m=speedwp',
         method: 'POST',
         data: {
             action: 'restore_backup',
@@ -924,7 +924,7 @@ function deleteBackup(siteId, backupId) {
     showLoading();
     
     $.ajax({
-        url: 'index.php?m=speedwp&action=ajax',
+        url: 'index.php?m=speedwp',
         method: 'POST',
         data: {
             action: 'delete_backup',
@@ -1034,7 +1034,7 @@ function executeUpdate(siteId) {
     showLoading();
     
     $.ajax({
-        url: 'index.php?m=speedwp&action=ajax',
+        url: 'index.php?m=speedwp',
         method: 'POST',
         data: {
             action: 'update_wordpress',
@@ -1080,7 +1080,7 @@ function backupSite(siteId) {
     
     // TODO: Implement AJAX call to backup WordPress
     $.ajax({
-        url: 'index.php?m=speedwp&action=ajax',
+        url: 'index.php?m=speedwp',
         method: 'POST',
         data: {
             action: 'backup_wordpress',
@@ -1106,7 +1106,7 @@ function scanAccount(accountId) {
     
     // TODO: Implement AJAX call to scan hosting account
     $.ajax({
-        url: 'index.php?m=speedwp&action=ajax',
+        url: 'index.php?m=speedwp',
         method: 'POST',
         data: {
             action: 'scan_wordpress',
@@ -1137,7 +1137,7 @@ function installWordPress(accountId) {
     
     // TODO: Implement AJAX call to install WordPress
     $.ajax({
-        url: 'index.php?m=speedwp&action=ajax',
+        url: 'index.php?m=speedwp',
         method: 'POST',
         data: {
             action: 'install_wordpress',
@@ -1269,7 +1269,7 @@ function executeInstall() {
     showLoading();
     
     $.ajax({
-        url: 'index.php?m=speedwp&action=ajax',
+        url: 'index.php?m=speedwp',
         method: 'POST',
         data: {
             action: 'install_wordpress',

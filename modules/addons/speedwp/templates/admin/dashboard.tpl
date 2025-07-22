@@ -1,16 +1,16 @@
 {*
  * SpeedWP Admin Area Dashboard Template
  * 
- * WordPress management interface for administrators.
+ * Administrative interface for WordPress management across all clients.
  * 
  * @package    SpeedWP
- * @author     Your Name
+ * @author     SpeedWP Team
  * @version    1.0.0
  * @link       https://github.com/codemoll/speedwp
  *}
 
-{* This template is included via the AdminController output method *}
-{* The HTML content is generated in the PHP controller for better integration with WHMCS admin area *}
+{* Note: The actual dashboard content is now rendered directly by AdminController.php *}
+{* This template is included but the HTML is generated in the controller for better WHMCS integration *}
 
 <style>
 .speedwp-admin-dashboard {

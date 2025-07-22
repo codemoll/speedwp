@@ -40,19 +40,24 @@ class SpeedWP_AdminController
      */
     public function index()
     {
-        $action = $_GET['action'] ?? 'dashboard';
-        
-        switch ($action) {
-            case 'sites':
-                return $this->manageSites();
-            case 'clients':
-                return $this->manageClients();
-            case 'settings':
-                return $this->settings();
-            case 'tools':
-                return $this->tools();
-            default:
-                return $this->dashboard();
+        try {
+            $action = $_GET['action'] ?? 'dashboard';
+            
+            switch ($action) {
+                case 'sites':
+                    return $this->manageSites();
+                case 'clients':
+                    return $this->manageClients();
+                case 'settings':
+                    return $this->settings();
+                case 'tools':
+                    return $this->tools();
+                default:
+                    return $this->dashboard();
+            }
+        } catch (Exception $e) {
+            logActivity("SpeedWP Admin Error: " . $e->getMessage());
+            return $this->showError("An error occurred: " . $e->getMessage());
         }
     }
 
@@ -580,6 +585,39 @@ class SpeedWP_AdminController
         $output .= '  }';
         $output .= '}';
         $output .= '</script>';
+        
+        return $output;
+    }
+
+    /**
+     * Show error message
+     * 
+     * @param string $errorMessage Error message to display
+     * @return string HTML output
+     */
+    private function showError($errorMessage)
+    {
+        $output = '<div class="speedwp-admin-error" style="margin: 20px 0;">';
+        $output .= '<div class="alert alert-danger">';
+        $output .= '<h4><i class="fa fa-exclamation-triangle"></i> SpeedWP Error</h4>';
+        $output .= '<p><strong>' . htmlspecialchars($errorMessage) . '</strong></p>';
+        $output .= '<hr>';
+        $output .= '<h5>Troubleshooting:</h5>';
+        $output .= '<ul>';
+        $output .= '<li>Check that the SpeedWP addon is properly activated</li>';
+        $output .= '<li>Verify database tables were created during activation</li>';
+        $output .= '<li>Ensure cPanel host is configured in addon settings</li>';
+        $output .= '<li>Check WHMCS activity logs for detailed error messages</li>';
+        $output .= '</ul>';
+        $output .= '<p style="margin-top: 15px;">';
+        $output .= '<a href="configaddonmods.php" class="btn btn-primary">';
+        $output .= '<i class="fa fa-cog"></i> Configure SpeedWP Settings';
+        $output .= '</a>';
+        $output .= '<a href="addonmodules.php" class="btn btn-default">';
+        $output .= '<i class="fa fa-arrow-left"></i> Back to Addon Modules';
+        $output .= '</a>';
+        $output .= '</p>';
+        $output .= '</div></div>';
         
         return $output;
     }
