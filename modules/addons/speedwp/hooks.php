@@ -16,7 +16,6 @@ if (!defined("WHMCS")) {
 
 use Illuminate\Database\Capsule\Manager as Capsule;
 use WHMCS\View\Menu\Item as MenuItem;
-use WHMCS\View\Menu\AbstractMenu;
 
 /**
  * Hook: After hosting account activation
@@ -204,16 +203,36 @@ add_hook('AfterModuleTerminate', 1, function($vars) {
 
 /**
  * Hook: Client area navigation
- * Add SpeedWP menu item to client area
+ * Add SpeedWP menu item to client area primary navigation
+ * 
+ * @param MenuItem $primaryNavbar The primary navigation menu item
+ * @return void
  */
-add_hook('ClientAreaPrimaryNavbar', 1, function(AbstractMenu $primaryNavbar) {
-    // Only show for clients with hosting services
+add_hook('ClientAreaPrimaryNavbar', 1, function(MenuItem $primaryNavbar) {
+    // Only show for logged-in clients with hosting services
     if (!is_null($primaryNavbar)) {
-        $primaryNavbar->addChild('speedwp')
-            ->setLabel('WordPress Manager')
-            ->setUri('index.php?m=speedwp')
-            ->setOrder(50)
-            ->setIcon('fa-wordpress');
+        try {
+            // Check if client has active hosting accounts
+            $clientId = $_SESSION['uid'] ?? 0;
+            if ($clientId) {
+                $query = "SELECT COUNT(*) as count FROM tblhosting WHERE userid = ? AND domainstatus = 'Active'";
+                $stmt = Capsule::connection()->getPdo()->prepare($query);
+                $stmt->execute([$clientId]);
+                $result = $stmt->fetch();
+                
+                // Only show if client has active hosting
+                if ($result && $result['count'] > 0) {
+                    $primaryNavbar->addChild('speedwp', [
+                        'label' => 'WordPress Manager',
+                        'uri' => 'index.php?m=speedwp',
+                        'order' => 50,
+                        'icon' => 'fa-wordpress'
+                    ]);
+                }
+            }
+        } catch (Exception $e) {
+            logActivity("SpeedWP Hook Error: " . $e->getMessage());
+        }
     }
 });
 
