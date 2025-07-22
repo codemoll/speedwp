@@ -36,7 +36,8 @@ class SpeedWP_ClientController
     public function __construct($vars)
     {
         $this->vars = $vars;
-        $this->clientId = $_SESSION['uid'] ?? 0;
+        // Get client ID from WHMCS - try multiple sources
+        $this->clientId = $_SESSION['uid'] ?? $_SESSION['userid'] ?? $vars['clientsdetails']['userid'] ?? 0;
     }
 
     /**
@@ -220,6 +221,8 @@ class SpeedWP_ClientController
             
         } catch (Exception $e) {
             logActivity("SpeedWP Error getting WP sites: " . $e->getMessage());
+            
+            // Return empty array - let the template handle the "no sites" display
             return [];
         }
     }
