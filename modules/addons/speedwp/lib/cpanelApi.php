@@ -57,9 +57,10 @@ class SpeedWP_CpanelApi
         $this->password = $config['password'] ?? '';
         $this->debugMode = $addonConfig['debug_mode'] ?? false;
         
-        // TODO: Add validation for required configuration
+        // Log warning if cPanel host is not configured, but don't throw exception
+        // This allows the module to be activated and configured without errors
         if (empty($this->cpanelHost)) {
-            throw new Exception('cPanel host not configured');
+            logActivity("SpeedWP Warning: cPanel host not configured. Please configure in addon settings.");
         }
     }
 
