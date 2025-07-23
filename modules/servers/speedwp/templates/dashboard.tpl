@@ -159,8 +159,8 @@
             </div>
         </div>
         
-        {* WordPress Management Panel *}
-        {if $show_wordpress_section && $wp_details.success}
+        {* WordPress Management Panel - Enhanced with Discovery *}
+        {if $show_wordpress_section}
         <div class="panel panel-primary">
             <div class="panel-heading">
                 <h4 class="panel-title">
@@ -174,185 +174,229 @@
             <div id="wordpress-management" class="panel-collapse collapse in">
                 <div class="panel-body">
                     
-                    {* WordPress Site Overview *}
-                    <div class="row">
-                        <div class="col-md-6">
-                            <h5><i class="fa fa-wordpress"></i> Site Information</h5>
-                            <table class="table table-condensed">
-                                <tr>
-                                    <th style="width: 40%;">WordPress Version:</th>
-                                    <td><strong>{$wp_details.wp_version}</strong></td>
-                                </tr>
-                                <tr>
-                                    <th>Site URL:</th>
-                                    <td>
-                                        <a href="https://{$domain}" target="_blank" class="btn btn-xs btn-success">
-                                            <i class="fa fa-external-link"></i> Visit Site
-                                        </a>
-                                    </td>
-                                </tr>
-                                <tr>
-                                    <th>Admin Area:</th>
-                                    <td>
-                                        <div class="btn-group">
-                                            <button type="button" class="btn btn-xs btn-primary" onclick="autoLoginWordPress()">
-                                                <i class="fa fa-sign-in"></i> Auto-Login to WordPress
-                                            </button>
-                                            <a href="{$wp_details.admin_url}" target="_blank" class="btn btn-xs btn-default">
-                                                <i class="fa fa-external-link"></i> Manual Login
+                    {if $wp_details.success}
+                        {* Primary Domain WordPress Installation Found *}
+                        <div class="alert alert-success">
+                            <h5><i class="fa fa-check-circle"></i> WordPress Installation Detected</h5>
+                            <p>WordPress is installed and managed by WP Toolkit for <strong>{$domain}</strong></p>
+                            {if $wp_details.installation_id}
+                                <p><small><strong>Installation ID:</strong> {$wp_details.installation_id}</small></p>
+                            {/if}
+                        </div>
+                        
+                        {* WordPress Site Overview *}
+                        <div class="row">
+                            <div class="col-md-6">
+                                <h5><i class="fa fa-wordpress"></i> Site Information</h5>
+                                <table class="table table-condensed">
+                                    <tr>
+                                        <th style="width: 40%;">WordPress Version:</th>
+                                        <td><strong>{$wp_details.wp_version|default:'Unknown'}</strong></td>
+                                    </tr>
+                                    {if $wp_details.path && $wp_details.path != '/'}
+                                    <tr>
+                                        <th>Installation Path:</th>
+                                        <td><code>{$wp_details.path}</code></td>
+                                    </tr>
+                                    {/if}
+                                    <tr>
+                                        <th>Site URL:</th>
+                                        <td>
+                                            <a href="{$wp_details.site_url|default:"https://$domain"}" target="_blank" class="btn btn-xs btn-success">
+                                                <i class="fa fa-external-link"></i> Visit Site
                                             </a>
-                                        </div>
-                                    </td>
-                                </tr>
-                                <tr>
-                                    <th>SSL Status:</th>
-                                    <td>
-                                        {if $wp_details.ssl_enabled}
-                                            <span class="label label-success"><i class="fa fa-lock"></i> Enabled</span>
-                                        {else}
-                                            <span class="label label-warning"><i class="fa fa-unlock"></i> Disabled</span>
-                                        {/if}
-                                    </td>
-                                </tr>
-                                <tr>
-                                    <th>Auto Updates:</th>
-                                    <td>
-                                        <div class="toggle-switch">
-                                            <input type="checkbox" id="auto-updates-toggle" {if $wp_details.auto_updates}checked{/if} 
-                                                   onchange="toggleAutoUpdates(this.checked)">
-                                            <label for="auto-updates-toggle">
-                                                {if $wp_details.auto_updates}Enabled{else}Disabled{/if}
-                                            </label>
-                                        </div>
-                                    </td>
-                                </tr>
-                                <tr>
-                                    <th>Last Backup:</th>
-                                    <td>
-                                        {if $wp_details.last_backup}
-                                            {$wp_details.last_backup|date_format:"%b %d, %Y at %I:%M %p"}
-                                        {else}
-                                            <span class="text-muted">No backups yet</span>
-                                        {/if}
-                                    </td>
-                                </tr>
+                                        </td>
+                                    </tr>
+                                    <tr>
+                                        <th>Admin Area:</th>
+                                        <td>
+                                            <div class="btn-group">
+                                                <button type="button" class="btn btn-xs btn-primary" onclick="autoLoginWordPress()">
+                                                    <i class="fa fa-sign-in"></i> Auto-Login to WordPress
+                                                </button>
+                                                <a href="{$wp_details.admin_url|default:"https://$domain/wp-admin/"}" target="_blank" class="btn btn-xs btn-default">
+                                                    <i class="fa fa-external-link"></i> Manual Login
+                                                </a>
+                                            </div>
+                                        </td>
+                                    </tr>
+                                    <tr>
+                                        <th>SSL Status:</th>
+                                        <td>
+                                            {if $wp_details.ssl_enabled}
+                                                <span class="label label-success"><i class="fa fa-lock"></i> Enabled</span>
+                                            {else}
+                                                <span class="label label-warning"><i class="fa fa-unlock"></i> Disabled</span>
+                                            {/if}
+                                        </td>
+                                    </tr>
+                                    <tr>
+                                        <th>Auto Updates:</th>
+                                        <td>
+                                            <div class="toggle-switch">
+                                                <input type="checkbox" id="auto-updates-toggle" {if $wp_details.auto_updates}checked{/if} 
+                                                       onchange="toggleAutoUpdates(this.checked)">
+                                                <label for="auto-updates-toggle">
+                                                    {if $wp_details.auto_updates}Enabled{else}Disabled{/if}
+                                                </label>
+                                            </div>
+                                        </td>
+                                    </tr>
+                                    <tr>
+                                        <th>Last Backup:</th>
+                                        <td>
+                                            {if $wp_details.last_backup}
+                                                {$wp_details.last_backup|date_format:"%b %d, %Y at %I:%M %p"}
+                                            {else}
+                                                <span class="text-muted">No backups yet</span>
+                                            {/if}
+                                        </td>
+                                    </tr>
+                                    {if $wp_details.status && $wp_details.status != 'active'}
+                                    <tr>
+                                        <th>Status:</th>
+                                        <td>
+                                            <span class="label label-warning">{$wp_details.status|ucfirst}</span>
+                                        </td>
+                                    </tr>
+                                    {/if}
+                                </table>
+                            </div>
+                            
+                            <div class="col-md-6">
+                                <h5><i class="fa fa-cogs"></i> Quick Actions</h5>
+                                <div class="btn-group-vertical" style="width: 100%; margin-bottom: 15px;">
+                                    <button type="button" class="btn btn-success" onclick="createWordPressBackup()">
+                                        <i class="fa fa-archive"></i> Create Backup Now
+                                    </button>
+                                    <button type="button" class="btn btn-warning" onclick="resetWordPressPassword()">
+                                        <i class="fa fa-key"></i> Reset Admin Password
+                                    </button>
+                                    <button type="button" class="btn btn-info" onclick="refreshWordPressDetails()">
+                                        <i class="fa fa-refresh"></i> Refresh WordPress Info
+                                    </button>
+                                    {if $wp_details.updates_available > 0}
+                                    <button type="button" class="btn btn-primary" onclick="updateWordPress()">
+                                        <i class="fa fa-arrow-up"></i> Update WordPress ({$wp_details.updates_available} updates)
+                                    </button>
+                                    {/if}
+                                </div>
+                                
+                                {if $wp_details.updates_available > 0}
+                                <div class="alert alert-warning">
+                                    <i class="fa fa-exclamation-triangle"></i> <strong>{$wp_details.updates_available} updates available</strong>
+                                    <p>Keep your WordPress installation secure and up-to-date.</p>
+                                </div>
+                                {else}
+                                <div class="alert alert-success">
+                                    <i class="fa fa-check-circle"></i> <strong>WordPress is up to date</strong>
+                                </div>
+                                {/if}
+                            </div>
+                        </div>
+                        
+                    {elseif $all_installations && $all_installations.success && $all_installations.count > 0}
+                        {* No Primary Domain WordPress, but Other Installations Found *}
+                        <div class="alert alert-info">
+                            <h5><i class="fa fa-info-circle"></i> WordPress Installations Found on Account</h5>
+                            <p>No WordPress installation was found for the primary domain <strong>{$domain}</strong>, but <strong>{$all_installations.count}</strong> WordPress installation(s) were found on this cPanel account:</p>
+                        </div>
+                        
+                        <div class="table-responsive">
+                            <table class="table table-striped table-hover">
+                                <thead>
+                                    <tr>
+                                        <th>Domain</th>
+                                        <th>Path</th>
+                                        <th>Version</th>
+                                        <th>SSL</th>
+                                        <th>Status</th>
+                                        <th>Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {foreach from=$all_installations.installations item=installation}
+                                    <tr>
+                                        <td><strong>{$installation.domain}</strong></td>
+                                        <td><code>{$installation.path}</code></td>
+                                        <td>{$installation.wp_version}</td>
+                                        <td>
+                                            {if $installation.ssl_enabled}
+                                                <span class="label label-success">SSL</span>
+                                            {else}
+                                                <span class="label label-default">None</span>
+                                            {/if}
+                                        </td>
+                                        <td>
+                                            <span class="label label-{if $installation.status == 'active'}success{else}warning{/if}">
+                                                {$installation.status|ucfirst}
+                                            </span>
+                                        </td>
+                                        <td>
+                                            <div class="btn-group">
+                                                {if $installation.admin_url}
+                                                <a href="{$installation.admin_url}" target="_blank" class="btn btn-xs btn-primary">
+                                                    <i class="fa fa-external-link"></i> Admin
+                                                </a>
+                                                {/if}
+                                                <a href="{$installation.site_url|default:"https://{$installation.domain}"}" target="_blank" class="btn btn-xs btn-success">
+                                                    <i class="fa fa-globe"></i> Visit
+                                                </a>
+                                            </div>
+                                        </td>
+                                    </tr>
+                                    {/foreach}
+                                </tbody>
                             </table>
                         </div>
                         
-                        <div class="col-md-6">
-                            <h5><i class="fa fa-cogs"></i> Quick Actions</h5>
-                            <div class="btn-group-vertical" style="width: 100%; margin-bottom: 15px;">
-                                <button type="button" class="btn btn-success" onclick="createWordPressBackup()">
-                                    <i class="fa fa-archive"></i> Create Backup Now
-                                </button>
-                                <button type="button" class="btn btn-warning" onclick="resetWordPressPassword()">
-                                    <i class="fa fa-key"></i> Reset Admin Password
-                                </button>
-                                <button type="button" class="btn btn-info" onclick="refreshWordPressDetails()">
-                                    <i class="fa fa-refresh"></i> Refresh WordPress Data
-                                </button>
-                                {if $wp_details.updates_available > 0}
-                                <button type="button" class="btn btn-danger" onclick="updateWordPress()">
-                                    <i class="fa fa-refresh"></i> Update WordPress ({$wp_details.updates_available} available)
-                                </button>
-                                {/if}
-                                <div class="btn-group" style="width: 100%; margin-top: 5px;">
-                                    <button type="button" class="btn btn-default dropdown-toggle" data-toggle="dropdown" style="width: 100%;">
-                                        <i class="fa fa-wrench"></i> More Actions <span class="caret"></span>
-                                    </button>
-                                    <ul class="dropdown-menu" style="width: 100%;">
-                                        <li><a href="#" onclick="managePlugins(); return false;"><i class="fa fa-plug"></i> Manage Plugins</a></li>
-                                        <li><a href="#" onclick="manageThemes(); return false;"><i class="fa fa-paint-brush"></i> Manage Themes</a></li>
-                                        <li><a href="#" onclick="viewBackupList(); return false;"><i class="fa fa-download"></i> Download Backups</a></li>
-                                        <li class="divider"></li>
-                                        <li><a href="#" onclick="showFtpDetails(); return false;"><i class="fa fa-folder"></i> FTP Access</a></li>
-                                    </ul>
-                                </div>
-                            </div>
-                            
-                            {if $wp_details.updates_available > 0}
-                            <div class="alert alert-warning">
-                                <i class="fa fa-exclamation-triangle"></i>
-                                <strong>{$wp_details.updates_available} updates available</strong><br>
-                                <small>WordPress core, plugins, or themes need updating</small>
-                            </div>
-                            {else}
-                            <div class="alert alert-success">
-                                <i class="fa fa-check-circle"></i>
-                                <strong>WordPress is up to date</strong><br>
-                                <small>All components are current</small>
-                            </div>
-                            {/if}
+                        <div class="alert alert-warning">
+                            <h5><i class="fa fa-lightbulb-o"></i> What you can do:</h5>
+                            <ul>
+                                <li>Access existing WordPress installations directly using the links above</li>
+                                <li>Install a new WordPress instance for your primary domain <strong>{$domain}</strong></li>
+                                <li>Contact support if you need to associate an existing installation with this service</li>
+                            </ul>
                         </div>
-                    </div>
-                    
-                    <hr>
-                    
-                    {* Plugins and Themes Overview *}
-                    <div class="row">
-                        <div class="col-md-6">
-                            <h5><i class="fa fa-plug"></i> Installed Plugins ({$wp_details.plugins|count})</h5>
-                            {if $wp_details.plugins}
-                                <div style="max-height: 200px; overflow-y: auto;">
-                                    <table class="table table-condensed table-striped">
-                                        <thead>
-                                            <tr>
-                                                <th>Plugin Name</th>
-                                                <th>Status</th>
-                                                <th>Update</th>
-                                                <th>Actions</th>
-                                            </tr>
-                                        </thead>
-                                        <tbody>
-                                            {foreach from=$wp_details.plugins item=plugin}
-                                            <tr>
-                                                <td><small>{$plugin.name}</small></td>
-                                                <td>
-                                                    <span class="label label-{if $plugin.active}success{else}default{/if}">
-                                                        {if $plugin.active}Active{else}Inactive{/if}
-                                                    </span>
-                                                </td>
-                                                <td>
-                                                    {if $plugin.update_available}
-                                                        <span class="label label-warning">Available</span>
-                                                    {else}
-                                                        <span class="text-muted">—</span>
-                                                    {/if}
-                                                </td>
-                                                <td>
-                                                    <div class="btn-group btn-group-xs">
-                                                        {if $plugin.active}
-                                                            <button type="button" class="btn btn-warning btn-xs" onclick="togglePlugin('{$plugin.name}', 'deactivate')" title="Deactivate">
-                                                                <i class="fa fa-pause"></i>
-                                                            </button>
-                                                        {else}
-                                                            <button type="button" class="btn btn-success btn-xs" onclick="togglePlugin('{$plugin.name}', 'activate')" title="Activate">
-                                                                <i class="fa fa-play"></i>
-                                                            </button>
-                                                        {/if}
-                                                        {if $plugin.update_available}
-                                                            <button type="button" class="btn btn-info btn-xs" onclick="updatePlugin('{$plugin.name}')" title="Update">
-                                                                <i class="fa fa-refresh"></i>
-                                                            </button>
-                                                        {/if}
-                                                    </div>
-                                                </td>
-                                            </tr>
-                                            {/foreach}
-                                        </tbody>
-                                    </table>
-                                </div>
-                            {else}
-                                <p class="text-muted"><em>No plugins installed</em></p>
+                        
+                        <div class="text-center" style="margin-top: 20px;">
+                            <button type="button" class="btn btn-success" onclick="installWordPressForPrimary()">
+                                <i class="fa fa-download"></i> Install WordPress for {$domain}
+                            </button>
+                            <button type="button" class="btn btn-info" onclick="refreshWordPressDetails()">
+                                <i class="fa fa-refresh"></i> Rescan for WordPress
+                            </button>
+                        </div>
+                        
+                    {else}
+                        {* No WordPress Installations Found *}
+                        <div class="alert alert-info">
+                            <h5><i class="fa fa-info-circle"></i> No WordPress Installation Detected</h5>
+                            <p>No WordPress installations were found on this hosting account. This could mean:</p>
+                            <ul>
+                                <li>WordPress is not installed on this account</li>
+                                <li>WordPress exists but is not managed by WP Toolkit</li>
+                                <li>WordPress was installed manually and needs to be imported into WP Toolkit</li>
+                            </ul>
+                            {if $all_installations && !$all_installations.success}
+                                <p><strong>Error:</strong> {$all_installations.message}</p>
                             {/if}
                         </div>
                         
-                        <div class="col-md-6">
-                            <h5><i class="fa fa-paint-brush"></i> Installed Themes ({$wp_details.themes|count})</h5>
-                            {if $wp_details.themes}
-                                <div style="max-height: 200px; overflow-y: auto;">
-                                    <table class="table table-condensed table-striped">
-                                        <thead>
+                        <div class="text-center">
+                            <button type="button" class="btn btn-success btn-lg" onclick="installWordPress()">
+                                <i class="fa fa-download"></i> Install WordPress
+                            </button>
+                            <button type="button" class="btn btn-primary" onclick="refreshWordPressDetails()">
+                                <i class="fa fa-search"></i> Scan for WordPress
+                            </button>
+                        </div>
+                        
+                    {/if}
+                </div>
+            </div>
+        </div>
+        {/if}
                                             <tr>
                                                 <th>Theme Name</th>
                                                 <th>Status</th>
@@ -403,36 +447,7 @@
                 </div>
             </div>
         </div>
-        
-        {elseif $show_wordpress_section}
-        {* No WordPress Installation Found *}
-        <div class="panel panel-warning">
-            <div class="panel-heading">
-                <h4 class="panel-title">
-                    <a data-toggle="collapse" data-parent="#speedwp-accordion" href="#wordpress-setup">
-                        <i class="fa fa-wordpress"></i> WordPress Setup
-                        <small class="pull-right text-muted">Click to expand</small>
-                    </a>
-                </h4>
-            </div>
-            <div id="wordpress-setup" class="panel-collapse collapse in">
-                <div class="panel-body">
-                    <div class="alert alert-info">
-                        <h4><i class="fa fa-info-circle"></i> WordPress Not Detected</h4>
-                        <p>No WordPress installation was found on your hosting account. You can install WordPress automatically using the button below.</p>
-                        <div style="margin-top: 15px;">
-                            <button type="button" class="btn btn-success btn-lg" onclick="installWordPress()">
-                                <i class="fa fa-download"></i> Install WordPress Now
-                            </button>
-                            <button type="button" class="btn btn-default" onclick="scanForWordPress()">
-                                <i class="fa fa-search"></i> Scan for Existing Installation
-                            </button>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </div>
-        {/if}
+
         
         {* Support and Documentation Panel *}
         <div class="panel panel-default">
@@ -815,9 +830,76 @@ function manageThemes() {
     alert('Theme management interface would open here.\\n\\nFeatures:\\n• Install new themes\\n• Theme customizer\\n• Update all themes\\n• Theme settings\\n\\n(Demo Mode)');
 }
 
+function refreshWordPressDetails() {
+    var btn = event.target;
+    var originalText = btn.innerHTML;
+    btn.innerHTML = '<i class="fa fa-spinner fa-spin"></i> Scanning...';
+    btn.disabled = true;
+    
+    // AJAX call to refresh WordPress details using discovery method
+    $.post('clientarea.php?action=productdetails&id={$service_id}', {
+        'modop': 'custom',
+        'a': 'refresh_wp_details'
+    }, function(data) {
+        try {
+            var response = JSON.parse(data);
+            if (response.success) {
+                if (response.primary_found) {
+                    alert('WordPress installation found and details refreshed successfully!');
+                } else if (response.all_installations && response.all_installations.count > 0) {
+                    alert('Found ' + response.all_installations.count + ' WordPress installation(s) on this account. Check below for details.');
+                } else {
+                    alert('No WordPress installations found on this account.');
+                }
+                location.reload();
+            } else {
+                alert('Error refreshing WordPress details: ' + response.message);
+            }
+        } catch (e) {
+            alert('Error refreshing WordPress details. Please try again.');
+        }
+        
+        btn.innerHTML = originalText;
+        btn.disabled = false;
+    }).fail(function() {
+        alert('Failed to communicate with server. Please try again.');
+        btn.innerHTML = originalText;
+        btn.disabled = false;
+    });
+}
+
+function installWordPressForPrimary() {
+    var domain = '{$domain}';
+    if (confirm('Install WordPress for your primary domain (' + domain + ')? This will create a new WordPress installation.')) {
+        var btn = event.target;
+        var originalText = btn.innerHTML;
+        btn.innerHTML = '<i class="fa fa-spinner fa-spin"></i> Installing...';
+        btn.disabled = true;
+        
+        alert('WordPress installation initiated for ' + domain + '!\\n\\nThis process typically takes 2-3 minutes. You will receive WordPress admin credentials once installation is complete.\\n\\n(Demo Mode)');
+        
+        setTimeout(function() {
+            btn.innerHTML = originalText;
+            btn.disabled = false;
+            location.reload();
+        }, 3000);
+    }
+}
+
 function installWordPress() {
     if (confirm('Install WordPress on your hosting account? This will create a new WordPress installation in the root directory.')) {
+        var btn = event.target;
+        var originalText = btn.innerHTML;
+        btn.innerHTML = '<i class="fa fa-spinner fa-spin"></i> Installing...';
+        btn.disabled = true;
+        
         alert('WordPress installation initiated!\\n\\nThis process typically takes 2-3 minutes. You will receive an email with your WordPress admin credentials once installation is complete.\\n\\n(Demo Mode)');
+        
+        setTimeout(function() {
+            btn.innerHTML = originalText;
+            btn.disabled = false;
+            location.reload();
+        }, 3000);
     }
 }
 
@@ -827,12 +909,8 @@ function scanForWordPress() {
     btn.innerHTML = '<i class="fa fa-spinner fa-spin"></i> Scanning...';
     btn.disabled = true;
     
-    setTimeout(function() {
-        btn.innerHTML = originalText;
-        btn.disabled = false;
-        alert('Scan completed!\\n\\nFound 1 WordPress installation in the root directory. Refreshing page to display WordPress management options.\\n\\n(Demo Mode)');
-        location.reload();
-    }, 3000);
+    // Use the same function as refreshWordPressDetails
+    refreshWordPressDetails();
 }
 
 // Hosting Account Functions  
