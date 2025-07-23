@@ -157,7 +157,7 @@ function speedwp_CreateAccount($params)
                 'domain' => $params['domain'],
                 'username' => $params['username'],
                 'admin_user' => $params['configoption7'] ?: 'admin',
-                'admin_pass' => generatePassword(12),
+                'admin_pass' => speedwp_generatePassword(12),
                 'admin_email' => $params['clientsdetails']['email'],
                 'site_title' => $params['domain'] . ' - WordPress Site',
                 'version' => $params['configoption6'] ?: 'latest',
@@ -168,9 +168,9 @@ function speedwp_CreateAccount($params)
             
             if ($wpResult['success']) {
                 // Store WordPress details in custom fields
-                updateCustomField($params['serviceid'], 'WordPress Admin URL', $wpResult['admin_url']);
-                updateCustomField($params['serviceid'], 'WordPress Admin User', $wpResult['admin_user']);
-                updateCustomField($params['serviceid'], 'WordPress Admin Password', encrypt($wpResult['admin_pass']));
+                speedwp_updateCustomField($params['serviceid'], 'WordPress Admin URL', $wpResult['admin_url']);
+                speedwp_updateCustomField($params['serviceid'], 'WordPress Admin User', $wpResult['admin_user']);
+                speedwp_updateCustomField($params['serviceid'], 'WordPress Admin Password', encrypt($wpResult['admin_pass']));
                 
                 logActivity("SpeedWP: WordPress installed successfully for {$params['domain']} - Admin: {$wpResult['admin_user']}");
             } else {
@@ -435,12 +435,12 @@ function speedwp_resetWordPressPassword($params)
             'password' => $params['serverpassword'] ?: $params['configoption4']
         ]);
         
-        $newPassword = generatePassword(12);
+        $newPassword = speedwp_generatePassword(12);
         $result = $cpanel->resetWordPressPassword($params['domain'], $newPassword);
         
         if ($result['success']) {
             // Update stored password
-            updateCustomField($params['serviceid'], 'WordPress Admin Password', encrypt($newPassword));
+            speedwp_updateCustomField($params['serviceid'], 'WordPress Admin Password', encrypt($newPassword));
             return "WordPress password reset successfully. New password: " . $newPassword;
         } else {
             return "Error: " . $result['message'];
@@ -593,12 +593,12 @@ function speedwp_AdminServicesTabFields($params)
 }
 
 /**
- * Generate a secure password
+ * Generate a secure password for SpeedWP module
  * 
  * @param int $length Password length
  * @return string Generated password
  */
-function generatePassword($length = 12)
+function speedwp_generatePassword($length = 12)
 {
     $chars = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*';
     $password = '';
@@ -609,16 +609,21 @@ function generatePassword($length = 12)
 }
 
 /**
- * Update custom field value
+ * Update custom field value for SpeedWP module
  * 
  * @param int $serviceId Service ID
  * @param string $fieldName Field name
  * @param string $value Field value
  * @return bool Success status
  */
-function updateCustomField($serviceId, $fieldName, $value)
+function speedwp_updateCustomField($serviceId, $fieldName, $value)
 {
     try {
+        // Check if WHMCS Capsule is available
+        if (!class_exists('Illuminate\Database\Capsule\Manager')) {
+            return false;
+        }
+        
         $customField = Capsule::table('tblcustomfields')
             ->where('type', 'product')
             ->where('fieldname', $fieldName)
