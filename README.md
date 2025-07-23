@@ -16,36 +16,148 @@ A comprehensive WordPress management addon for WHMCS that enables hosting client
 
 ### Requirements
 
-- WHMCS 7.0 or later
-- PHP 7.4 or later
-- cPanel hosting environment
-- MySQL 5.7 or later
-- SSL certificate for secure API communication
+- **WHMCS**: Version 8.0 or later (compatible with 8.x+)
+- **PHP**: Version 7.4 or later (tested with PHP 7.4+ and 8.x)
+- **cPanel**: Hosting environment with API access enabled
+- **MySQL**: Version 5.7 or later
+- **SSL**: Certificate for secure API communication
 
-### Setup Instructions
+### Step-by-Step Setup Instructions
 
-1. **Upload Files**
-   ```bash
-   # Upload the speedwp folder to your WHMCS modules/addons directory
-   /path/to/whmcs/modules/addons/speedwp/
-   ```
+#### 1. Upload Module Files
+```bash
+# Upload the speedwp folder to your WHMCS modules/addons directory
+/path/to/whmcs/modules/addons/speedwp/
+```
 
-2. **Activate the Addon**
-   - Navigate to **Setup > Addon Modules** in WHMCS admin area
-   - Find "SpeedWP - WordPress Manager" and click **Activate**
-   - Configure the addon settings:
-     - **cPanel Host**: Your cPanel server hostname or IP
-     - **cPanel Port**: Usually 2083 for HTTPS
-     - **Debug Mode**: Enable for troubleshooting (disable in production)
+Ensure all files have proper permissions:
+```bash
+chmod -R 755 /path/to/whmcs/modules/addons/speedwp/
+```
 
-3. **Configure Access Control**
-   - Set administrator role permissions for the addon
-   - Grant access to admin staff who should manage WordPress installations
+#### 2. Activate the SpeedWP Addon
+1. Navigate to **Setup > Addon Modules** in WHMCS admin area
+2. Find "SpeedWP - WordPress Manager" in the list
+3. Click **Activate** button
+4. The module will automatically create required database tables
 
-4. **Test Configuration**
-   - Visit the addon page in admin area to verify setup
-   - Test cPanel connectivity with a sample hosting account
-   - Scan a hosting account for existing WordPress installations
+#### 3. Configure Module Settings
+1. After activation, click **Configure** next to SpeedWP
+2. Configure the following settings:
+   - **cPanel Host**: Your cPanel server hostname or IP address
+   - **cPanel Port**: Usually 2083 for HTTPS (or 2082 for HTTP)
+   - **Auto-Install WordPress**: Enable to auto-install WordPress on new accounts
+   - **Auto-Create FTP Accounts**: Enable to create dedicated FTP access for each WordPress site
+   - **Include FTP in Welcome Email**: Add WordPress FTP credentials to welcome emails
+   - **Auto-Backup Before Updates**: Enable automatic backups before WordPress updates
+   - **Backup Retention (Days)**: Number of days to keep backups (default: 30)
+   - **Debug Mode**: Enable for troubleshooting (disable in production)
+
+#### 4. Set Administrator Permissions
+1. Go to **Setup > Administrator Roles**
+2. Edit the roles that should have access to SpeedWP
+3. Check the permissions for "SpeedWP - WordPress Manager"
+4. Save the role configuration
+
+#### 5. Verify Installation
+1. Navigate to **Addons > SpeedWP** in the admin area
+2. You should see the dashboard with demo statistics
+3. The interface will show sample data until you configure cPanel connectivity
+
+## Product Setup and Client Assignment Guide
+
+### Creating WordPress Hosting Products
+
+To enable SpeedWP functionality for your hosting clients, you need to create and configure hosting products properly:
+
+#### 1. Create Hosting Products in WHMCS
+1. Navigate to **Setup > Products/Services > Products/Services**
+2. Click **Create New Group** (if needed) or use existing group
+3. Click **Create a New Product**
+4. Configure the product:
+   - **Product Type**: Hosting Account
+   - **Product Name**: "WordPress Hosting" (or your preferred name)
+   - **Description**: Include mention of WordPress management features
+
+#### 2. Configure Product Module Settings
+1. In the product configuration, go to the **Module Settings** tab
+2. Select your hosting module (e.g., cPanel, Plesk, etc.)
+3. Configure server assignments and package details
+4. **Important**: Ensure the server has cPanel API access enabled
+
+#### 3. Enable WordPress Features in Product Description
+Add to your product description:
+```
+✓ WordPress Management via Client Area
+✓ One-Click WordPress Installation
+✓ Automatic WordPress Updates
+✓ Built-in Backup & Restore
+✓ Plugin & Theme Management
+✓ WordPress Security Scanning
+```
+
+### Assigning SpeedWP to Clients
+
+#### Method 1: Automatic Assignment (Recommended)
+SpeedWP automatically works with hosting accounts through hooks:
+1. When a hosting account is created, SpeedWP automatically scans for WordPress
+2. If auto-install is enabled, WordPress is installed automatically
+3. Clients immediately have access via "WordPress Manager" in their client area
+
+#### Method 2: Manual WordPress Site Registration
+For existing clients or manual setup:
+1. Go to **Clients > View/Search Clients**
+2. Select the client and view their services
+3. In the hosting service details, you'll see a "WordPress Sites" section
+4. Click **Scan for WordPress** to detect existing installations
+5. Or click **Install WordPress** to create a new installation
+
+#### 3. Client Access Instructions
+
+**For Clients:**
+1. Log into the WHMCS client area
+2. Look for "WordPress Manager" in the main navigation
+3. Access all WordPress management features from this central dashboard
+
+**Client Features Available:**
+- View all WordPress sites across hosting accounts
+- Install new WordPress sites
+- Update WordPress core, plugins, and themes
+- Create and manage backups
+- Access FTP credentials (if enabled)
+- View site statistics and health information
+
+#### 4. Product Pricing Considerations
+
+**Hosting Package Tiers with WordPress Features:**
+- **Basic**: WordPress installation + basic management
+- **Professional**: + automatic backups + updates
+- **Premium**: + advanced features + staging environments + priority support
+
+**Add-on Services:**
+- WordPress Migration Service
+- WordPress Maintenance Service
+- WordPress Security Monitoring
+- Premium WordPress Themes/Plugins
+
+#### 5. Troubleshooting Client Assignment
+
+**Common Issues and Solutions:**
+
+1. **Client can't see WordPress Manager menu**
+   - Verify client has active hosting account
+   - Check that hosting account uses compatible hosting module
+   - Ensure SpeedWP addon is activated
+
+2. **WordPress sites not detected**
+   - Run manual scan from admin area
+   - Check cPanel API connectivity
+   - Verify file permissions on hosting account
+
+3. **WordPress management features not working**
+   - Verify cPanel host configuration in addon settings
+   - Check WHMCS activity logs for error messages
+   - Enable debug mode to diagnose issues
 
 ### cPanel API Setup
 
