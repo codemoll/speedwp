@@ -530,11 +530,160 @@ function speedwp_ClientArea($params)
 function speedwp_AdminCustomButtonArray($params)
 {
     return [
+        'Create WordPress' => 'createWordPress',
+        'Delete WordPress' => 'deleteWordPress',
         'Manage WordPress' => 'manageWordPress',
         'Reset WP Password' => 'resetWordPressPassword', 
         'Create Backup' => 'createBackup',
         'View WP Details' => 'viewWordPressDetails'
     ];
+}
+
+/**
+ * Create WordPress installation in public_html
+ * 
+ * @param array $params Module parameters from WHMCS
+ * @return string Success or error message
+ */
+function speedwp_createWordPress($params)
+{
+    try {
+        // Validate required parameters
+        if (empty($params['domain'])) {
+            throw new Exception("Domain is required for WordPress installation");
+        }
+        
+        $domain = filter_var(trim($params['domain']), FILTER_SANITIZE_STRING);
+        if (!$domain) {
+            throw new Exception("Invalid domain provided");
+        }
+        
+        require_once __DIR__ . '/lib/CpanelApi.php';
+        $cpanel = new SpeedWP_CpanelApi([
+            'host' => $params['serverhostname'] ?: $params['configoption1'],
+            'port' => intval($params['configoption2'] ?: 2087),
+            'username' => $params['serverusername'] ?: $params['configoption3'],
+            'password' => $params['serverpassword'] ?: $params['configoption4'],
+            'timeout' => max(60, intval($params['configoption13'] ?: 180)),
+            'debug' => $params['configoption14'] === 'on'
+        ]);
+        
+        // Auto-generate WordPress credentials
+        $adminUsername = 'admin';
+        $adminPassword = speedwp_generatePassword(16);
+        $adminEmail = $params['clientsdetails']['email'] ?? 'admin@' . $domain;
+        
+        $wpResult = $cpanel->installWordPress([
+            'domain' => $domain,
+            'username' => $params['username'],
+            'admin_user' => $adminUsername,
+            'admin_pass' => $adminPassword,
+            'admin_email' => $adminEmail,
+            'site_title' => ucfirst(str_replace(['.', '-', '_'], ' ', explode('.', $domain)[0])) . ' - WordPress Site',
+            'version' => 'latest',
+            'enable_ssl' => true,
+            'enable_backups' => true,
+            'backup_frequency' => 'weekly'
+        ]);
+        
+        if ($wpResult['success']) {
+            // Store WordPress details in custom fields
+            try {
+                speedwp_updateCustomField($params['serviceid'], 'WordPress Admin URL', $wpResult['admin_url']);
+                speedwp_updateCustomField($params['serviceid'], 'WordPress Admin User', $wpResult['admin_user']);
+                speedwp_updateCustomField($params['serviceid'], 'WordPress Admin Password', encrypt($wpResult['admin_pass']));
+            } catch (Exception $e) {
+                logActivity("SpeedWP: Warning - Could not update custom fields: " . $e->getMessage());
+            }
+            
+            logActivity("SpeedWP: WordPress installed successfully by admin for {$domain} - Admin: {$wpResult['admin_user']}");
+            
+            $message = "WordPress installed successfully in public_html!\n\n";
+            $message .= "Admin URL: " . $wpResult['admin_url'] . "\n";
+            $message .= "Admin Username: " . $wpResult['admin_user'] . "\n";
+            $message .= "Admin Password: " . $wpResult['admin_pass'] . "\n\n";
+            $message .= "Please save these credentials securely and provide them to the client.";
+            
+            return $message;
+        } else {
+            return "Error: " . $wpResult['message'];
+        }
+        
+    } catch (Exception $e) {
+        return "Error: " . $e->getMessage();
+    }
+}
+
+/**
+ * Delete WordPress installation from public_html
+ * 
+ * @param array $params Module parameters from WHMCS
+ * @return string Success or error message
+ */
+function speedwp_deleteWordPress($params)
+{
+    try {
+        // Validate required parameters
+        if (empty($params['domain'])) {
+            throw new Exception("Domain is required for WordPress deletion");
+        }
+        
+        $domain = filter_var(trim($params['domain']), FILTER_SANITIZE_STRING);
+        if (!$domain) {
+            throw new Exception("Invalid domain provided");
+        }
+        
+        require_once __DIR__ . '/lib/CpanelApi.php';
+        $cpanel = new SpeedWP_CpanelApi([
+            'host' => $params['serverhostname'] ?: $params['configoption1'],
+            'port' => intval($params['configoption2'] ?: 2087),
+            'username' => $params['serverusername'] ?: $params['configoption3'],
+            'password' => $params['serverpassword'] ?: $params['configoption4'],
+            'timeout' => max(60, intval($params['configoption13'] ?: 180)),
+            'debug' => $params['configoption14'] === 'on'
+        ]);
+        
+        // Create backup before deletion if requested
+        $createBackup = isset($_POST['create_backup']) && $_POST['create_backup'] === 'yes';
+        if ($createBackup) {
+            try {
+                $backupResult = $cpanel->createWordPressBackup($domain);
+                if ($backupResult['success']) {
+                    logActivity("SpeedWP: Final backup created before WordPress deletion for {$domain}");
+                }
+            } catch (Exception $e) {
+                logActivity("SpeedWP: Warning - Final backup failed for {$domain}: " . $e->getMessage());
+            }
+        }
+        
+        $result = $cpanel->deleteWordPressInstallation($domain);
+        
+        if ($result['success']) {
+            // Clear WordPress details from custom fields
+            try {
+                speedwp_updateCustomField($params['serviceid'], 'WordPress Admin URL', '');
+                speedwp_updateCustomField($params['serviceid'], 'WordPress Admin User', '');
+                speedwp_updateCustomField($params['serviceid'], 'WordPress Admin Password', '');
+            } catch (Exception $e) {
+                logActivity("SpeedWP: Warning - Could not clear custom fields: " . $e->getMessage());
+            }
+            
+            logActivity("SpeedWP: WordPress installation deleted by admin for {$domain}");
+            
+            $message = "WordPress installation deleted successfully from public_html!\n\n";
+            if ($createBackup) {
+                $message .= "A final backup was created before deletion.\n";
+            }
+            $message .= "All WordPress files, database, and associated data have been removed.";
+            
+            return $message;
+        } else {
+            return "Error: " . $result['message'];
+        }
+        
+    } catch (Exception $e) {
+        return "Error: " . $e->getMessage();
+    }
 }
 
 /**

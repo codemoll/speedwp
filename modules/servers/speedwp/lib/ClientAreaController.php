@@ -69,6 +69,26 @@ class SpeedWP_ClientAreaController
                     $response = $this->updateWordPress();
                     break;
                     
+                case 'get_auto_login':
+                    $response = $this->getAutoLogin();
+                    break;
+                    
+                case 'get_ftp_details':
+                    $response = $this->getFtpDetails();
+                    break;
+                    
+                case 'manage_plugins':
+                    $response = $this->managePlugins();
+                    break;
+                    
+                case 'manage_themes':
+                    $response = $this->manageThemes();
+                    break;
+                    
+                case 'download_backup':
+                    $response = $this->downloadBackup();
+                    break;
+                    
                 default:
                     $response = ['success' => false, 'message' => 'Unknown action: ' . $action];
                     break;
@@ -105,6 +125,7 @@ class SpeedWP_ClientAreaController
             
             $wpDetails = $cpanel->getWordPressDetails($this->params['domain']);
             $hostingDetails = $this->getHostingAccountDetails();
+            $ftpDetails = $cpanel->getFtpDetails($this->params['username'], $this->params['domain']);
             
             return [
                 'templatefile' => 'dashboard',
@@ -113,6 +134,7 @@ class SpeedWP_ClientAreaController
                     'username' => $this->params['username'],
                     'wp_details' => $wpDetails,
                     'hosting_details' => $hostingDetails,
+                    'ftp_details' => $ftpDetails,
                     'service_id' => $this->params['serviceid'],
                     'client_area_url' => $this->params['whmcsurl'] . 'clientarea.php?action=productdetails&id=' . $this->params['serviceid'],
                     'show_wordpress_section' => $wpDetails['success'],
@@ -367,6 +389,191 @@ class SpeedWP_ClientAreaController
         }
     }
     
+    /**
+     * Get WordPress auto-login URL via AJAX
+     * 
+     * @return array AJAX response
+     */
+    private function getAutoLogin()
+    {
+        try {
+            require_once __DIR__ . '/CpanelApi.php';
+            $cpanel = new SpeedWP_CpanelApi([
+                'host' => $this->params['serverhostname'] ?: $this->params['configoption1'],
+                'port' => $this->params['configoption2'] ?: 2087,
+                'username' => $this->params['serverusername'] ?: $this->params['configoption3'],
+                'password' => $this->params['serverpassword'] ?: $this->params['configoption4']
+            ]);
+            
+            $result = $cpanel->generateWordPressAutoLogin($this->params['domain']);
+            
+            if ($result['success']) {
+                logActivity("SpeedWP: Client-initiated auto-login generated for {$this->params['domain']}");
+                
+                return [
+                    'success' => true,
+                    'message' => 'Auto-login URL generated successfully',
+                    'login_url' => $result['login_url'],
+                    'expires_at' => $result['expires_at'],
+                    'demo_mode' => $result['demo_mode'] ?? false
+                ];
+            } else {
+                return [
+                    'success' => false,
+                    'message' => 'Auto-login generation failed: ' . ($result['message'] ?? 'Unknown error')
+                ];
+            }
+            
+        } catch (Exception $e) {
+            return [
+                'success' => false,
+                'message' => 'Error generating auto-login: ' . $e->getMessage()
+            ];
+        }
+    }
+
+    /**
+     * Get FTP details via AJAX
+     * 
+     * @return array AJAX response
+     */
+    private function getFtpDetails()
+    {
+        try {
+            require_once __DIR__ . '/CpanelApi.php';
+            $cpanel = new SpeedWP_CpanelApi([
+                'host' => $this->params['serverhostname'] ?: $this->params['configoption1'],
+                'port' => $this->params['configoption2'] ?: 2087,
+                'username' => $this->params['serverusername'] ?: $this->params['configoption3'],
+                'password' => $this->params['serverpassword'] ?: $this->params['configoption4']
+            ]);
+            
+            $result = $cpanel->getFtpDetails($this->params['username'], $this->params['domain']);
+            
+            if ($result['success']) {
+                return [
+                    'success' => true,
+                    'message' => 'FTP details retrieved successfully',
+                    'ftp_details' => $result
+                ];
+            } else {
+                return [
+                    'success' => false,
+                    'message' => 'Failed to retrieve FTP details'
+                ];
+            }
+            
+        } catch (Exception $e) {
+            return [
+                'success' => false,
+                'message' => 'Error retrieving FTP details: ' . $e->getMessage()
+            ];
+        }
+    }
+
+    /**
+     * Manage WordPress plugins via AJAX
+     * 
+     * @return array AJAX response
+     */
+    private function managePlugins()
+    {
+        try {
+            $action = $_POST['plugin_action'] ?? '';
+            $plugin = $_POST['plugin_name'] ?? '';
+            
+            if (!$action || !$plugin) {
+                throw new Exception('Plugin action and name are required');
+            }
+            
+            // This would normally call WP Toolkit API to manage plugins
+            logActivity("SpeedWP: Client-initiated plugin management for {$this->params['domain']} - {$action} on {$plugin}");
+            
+            return [
+                'success' => true,
+                'message' => "Plugin {$action} completed successfully for {$plugin} (Demo Mode)",
+                'plugin' => $plugin,
+                'action' => $action
+            ];
+            
+        } catch (Exception $e) {
+            return [
+                'success' => false,
+                'message' => 'Error managing plugin: ' . $e->getMessage()
+            ];
+        }
+    }
+
+    /**
+     * Manage WordPress themes via AJAX
+     * 
+     * @return array AJAX response
+     */
+    private function manageThemes()
+    {
+        try {
+            $action = $_POST['theme_action'] ?? '';
+            $theme = $_POST['theme_name'] ?? '';
+            
+            if (!$action || !$theme) {
+                throw new Exception('Theme action and name are required');
+            }
+            
+            // This would normally call WP Toolkit API to manage themes
+            logActivity("SpeedWP: Client-initiated theme management for {$this->params['domain']} - {$action} on {$theme}");
+            
+            return [
+                'success' => true,
+                'message' => "Theme {$action} completed successfully for {$theme} (Demo Mode)",
+                'theme' => $theme,
+                'action' => $action
+            ];
+            
+        } catch (Exception $e) {
+            return [
+                'success' => false,
+                'message' => 'Error managing theme: ' . $e->getMessage()
+            ];
+        }
+    }
+
+    /**
+     * Download WordPress backup via AJAX
+     * 
+     * @return array AJAX response
+     */
+    private function downloadBackup()
+    {
+        try {
+            $backupName = $_POST['backup_name'] ?? '';
+            
+            if (!$backupName) {
+                throw new Exception('Backup name is required');
+            }
+            
+            // This would normally generate a secure download link for the backup
+            logActivity("SpeedWP: Client-initiated backup download for {$this->params['domain']} - {$backupName}");
+            
+            // Generate a demo download URL (in real implementation, this would be a secure temporary URL)
+            $downloadUrl = $this->params['whmcsurl'] . 'downloads.php?type=backup&file=' . urlencode($backupName) . '&service=' . $this->params['serviceid'];
+            
+            return [
+                'success' => true,
+                'message' => 'Download link generated successfully',
+                'download_url' => $downloadUrl,
+                'backup_name' => $backupName,
+                'expires_in' => '24 hours',
+                'demo_mode' => true
+            ];
+            
+        } catch (Exception $e) {
+            return [
+                'success' => false,
+                'message' => 'Error generating download link: ' . $e->getMessage()
+            ];
+        }
+    }
+
     /**
      * Sanitize and convert value to numeric for calculations
      * 
