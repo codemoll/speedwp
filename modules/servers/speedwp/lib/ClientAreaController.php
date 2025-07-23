@@ -5,6 +5,9 @@
  * Handles client area WordPress management interface and functionality
  * for the SpeedWP server provisioning module.
  * 
+ * SECURITY NOTE: Data sanitization methods prevent arithmetic operations
+ * on non-numeric values like 'unlimited', 'N/A', null to avoid PHP 8+ TypeError.
+ * 
  * @package    SpeedWP Server Module
  * @version    1.0.0
  * @author     SpeedWP Development Team
@@ -311,6 +314,11 @@ class SpeedWP_ClientAreaController
      * 
      * @return array Hosting account information
      */
+    /**
+     * Get hosting account details for client area display
+     * 
+     * @return array Hosting account information with sanitized numeric values
+     */
     private function getHostingAccountDetails()
     {
         try {
@@ -324,15 +332,16 @@ class SpeedWP_ClientAreaController
             
             $usage = $cpanel->getAccountUsage($this->params['username']);
             
+            // Sanitize usage values to prevent arithmetic errors with non-numeric data
             return [
                 'server' => $this->params['serverhostname'] ?: $this->params['configoption1'],
                 'username' => $this->params['username'],
                 'domain' => $this->params['domain'],
                 'package' => $this->params['packagename'],
-                'disk_usage' => $usage['disk_used'] ?? 0,
-                'disk_limit' => $usage['disk_limit'] ?? 0,
-                'bandwidth_usage' => $usage['bandwidth_used'] ?? 0,
-                'bandwidth_limit' => $usage['bandwidth_limit'] ?? 0,
+                'disk_usage' => $this->sanitizeNumericValue($usage['disk_used'] ?? 0),
+                'disk_limit' => $this->sanitizeNumericValue($usage['disk_limit'] ?? 0),
+                'bandwidth_usage' => $this->sanitizeNumericValue($usage['bandwidth_used'] ?? 0),
+                'bandwidth_limit' => $this->sanitizeNumericValue($usage['bandwidth_limit'] ?? 0),
                 'status' => $this->params['productstatus'] ?? 'Active',
                 'cpanel_url' => 'https://' . ($this->params['serverhostname'] ?: $this->params['configoption1']) . ':2083',
                 'webmail_url' => 'https://' . $this->params['domain'] . '/webmail'
@@ -341,13 +350,13 @@ class SpeedWP_ClientAreaController
         } catch (Exception $e) {
             logActivity("SpeedWP: Error getting hosting details: " . $e->getMessage());
             
-            // Return basic demo data
+            // Return basic demo data with safe numeric values
             return [
                 'server' => $this->params['serverhostname'] ?: 'demo.server.com',
                 'username' => $this->params['username'],
                 'domain' => $this->params['domain'],
                 'package' => $this->params['packagename'] ?: 'WordPress Hosting',
-                'disk_usage' => 512,
+                'disk_usage' => 512,    // Safe numeric values for demo
                 'disk_limit' => 5000,
                 'bandwidth_usage' => 2048,
                 'bandwidth_limit' => 50000,
@@ -356,5 +365,36 @@ class SpeedWP_ClientAreaController
                 'webmail_url' => 'https://' . $this->params['domain'] . '/webmail'
             ];
         }
+    }
+    
+    /**
+     * Sanitize and convert value to numeric for calculations
+     * 
+     * Handles string values like 'unlimited', 'N/A', null, empty strings
+     * 
+     * @param mixed $value Value to sanitize
+     * @return int|float Numeric value or 0 if not convertible
+     */
+    private function sanitizeNumericValue($value)
+    {
+        // Handle null or empty values
+        if ($value === null || $value === '') {
+            return 0;
+        }
+        
+        // Handle string values that indicate unlimited or N/A
+        if (is_string($value)) {
+            $lowerValue = strtolower(trim($value));
+            if (in_array($lowerValue, ['unlimited', 'n/a', 'na', '-', '∞'])) {
+                return 0; // Treat unlimited as 0 for calculation purposes
+            }
+        }
+        
+        // Convert to numeric, return 0 if not numeric
+        if (is_numeric($value)) {
+            return (float) $value;
+        }
+        
+        return 0;
     }
 }

@@ -5,6 +5,10 @@
  * Handles admin area server and account management functionality
  * for the SpeedWP server provisioning module.
  * 
+ * SECURITY NOTE: All arithmetic operations are protected against non-numeric 
+ * values (e.g., 'unlimited', 'N/A', null) to prevent PHP 8+ TypeError exceptions.
+ * Helper methods sanitize data before calculations.
+ * 
  * @package    SpeedWP Server Module
  * @version    1.0.0
  * @author     SpeedWP Development Team
@@ -68,23 +72,29 @@ class SpeedWP_AdminController
             $output .= '<div class="panel-body">';
             $output .= '<div class="progress-container">';
             
-            // Disk Usage
-            $diskPercent = $hostingDetails['disk_limit'] > 0 ? 
-                round(($hostingDetails['disk_usage'] / $hostingDetails['disk_limit']) * 100, 1) : 0;
+            // Disk Usage - Safely calculate percentage with numeric validation
+            $diskPercent = $this->calculateUsagePercentage(
+                $hostingDetails['disk_usage'], 
+                $hostingDetails['disk_limit']
+            );
             $output .= '<div class="usage-item">';
             $output .= '<strong>Disk Usage:</strong> ';
-            $output .= $this->formatBytes($hostingDetails['disk_usage']) . ' / ' . $this->formatBytes($hostingDetails['disk_limit']);
+            $output .= $this->formatBytesForDisplay($hostingDetails['disk_usage']) . ' / ' . 
+                      $this->formatBytesForDisplay($hostingDetails['disk_limit']);
             $output .= '<div class="progress" style="margin-top:5px;margin-bottom:10px;">';
             $output .= '<div class="progress-bar ' . ($diskPercent > 80 ? 'progress-bar-danger' : ($diskPercent > 60 ? 'progress-bar-warning' : 'progress-bar-success')) . '" style="width:' . min($diskPercent, 100) . '%">';
             $output .= $diskPercent . '%</div></div>';
             $output .= '</div>';
             
-            // Bandwidth Usage  
-            $bwPercent = $hostingDetails['bandwidth_limit'] > 0 ?
-                round(($hostingDetails['bandwidth_usage'] / $hostingDetails['bandwidth_limit']) * 100, 1) : 0;
+            // Bandwidth Usage - Safely calculate percentage with numeric validation
+            $bwPercent = $this->calculateUsagePercentage(
+                $hostingDetails['bandwidth_usage'], 
+                $hostingDetails['bandwidth_limit']
+            );
             $output .= '<div class="usage-item">';
             $output .= '<strong>Bandwidth:</strong> ';
-            $output .= $this->formatBytes($hostingDetails['bandwidth_usage']) . ' / ' . $this->formatBytes($hostingDetails['bandwidth_limit']);
+            $output .= $this->formatBytesForDisplay($hostingDetails['bandwidth_usage']) . ' / ' . 
+                      $this->formatBytesForDisplay($hostingDetails['bandwidth_limit']);
             $output .= '<div class="progress" style="margin-top:5px;">';
             $output .= '<div class="progress-bar ' . ($bwPercent > 80 ? 'progress-bar-danger' : ($bwPercent > 60 ? 'progress-bar-warning' : 'progress-bar-success')) . '" style="width:' . min($bwPercent, 100) . '%">';
             $output .= $bwPercent . '%</div></div>';
@@ -311,7 +321,7 @@ class SpeedWP_AdminController
     /**
      * Get hosting account details for admin display
      * 
-     * @return array Hosting account information
+     * @return array Hosting account information with sanitized numeric values
      */
     private function getHostingAccountDetails()
     {
@@ -326,22 +336,23 @@ class SpeedWP_AdminController
             
             $usage = $cpanel->getAccountUsage($this->params['username']);
             
+            // Sanitize usage values to prevent arithmetic errors with non-numeric data
             return [
                 'server' => $this->params['serverhostname'] ?: $this->params['configoption1'],
                 'username' => $this->params['username'],
                 'domain' => $this->params['domain'],
                 'package' => $this->params['packagename'] ?? 'Default',
-                'disk_usage' => $usage['disk_used'] ?? 0,
-                'disk_limit' => $usage['disk_limit'] ?? 0,
-                'bandwidth_usage' => $usage['bandwidth_used'] ?? 0,
-                'bandwidth_limit' => $usage['bandwidth_limit'] ?? 0,
+                'disk_usage' => $this->sanitizeNumericValue($usage['disk_used'] ?? 0),
+                'disk_limit' => $this->sanitizeNumericValue($usage['disk_limit'] ?? 0),
+                'bandwidth_usage' => $this->sanitizeNumericValue($usage['bandwidth_used'] ?? 0),
+                'bandwidth_limit' => $this->sanitizeNumericValue($usage['bandwidth_limit'] ?? 0),
                 'status' => $this->params['productstatus'] ?? 'Active'
             ];
             
         } catch (Exception $e) {
             logActivity("SpeedWP: Error getting hosting details from admin: " . $e->getMessage());
             
-            // Return demo data
+            // Return demo data with safe numeric values
             return [
                 'server' => $this->params['serverhostname'] ?: 'demo.server.com',
                 'username' => $this->params['username'],
@@ -354,6 +365,95 @@ class SpeedWP_AdminController
                 'status' => 'Active'
             ];
         }
+    }
+
+    /**
+     * Safely calculate usage percentage with numeric validation
+     * 
+     * Prevents division by zero and handles non-numeric values like 'unlimited', 'N/A'
+     * 
+     * @param mixed $usage Current usage value
+     * @param mixed $limit Limit value 
+     * @return float Percentage (0-100) or 0 if calculation not possible
+     */
+    private function calculateUsagePercentage($usage, $limit)
+    {
+        // Sanitize and validate numeric values
+        $numericUsage = $this->sanitizeNumericValue($usage);
+        $numericLimit = $this->sanitizeNumericValue($limit);
+        
+        // Return 0 if limit is zero, unlimited, or invalid
+        if ($numericLimit <= 0) {
+            return 0;
+        }
+        
+        // Calculate percentage, ensuring it doesn't exceed 100%
+        $percentage = ($numericUsage / $numericLimit) * 100;
+        return round(min($percentage, 100), 1);
+    }
+    
+    /**
+     * Sanitize and convert value to numeric for calculations
+     * 
+     * Handles string values like 'unlimited', 'N/A', null, empty strings
+     * 
+     * @param mixed $value Value to sanitize
+     * @return int|float Numeric value or 0 if not convertible
+     */
+    private function sanitizeNumericValue($value)
+    {
+        // Handle null or empty values
+        if ($value === null || $value === '') {
+            return 0;
+        }
+        
+        // Handle string values that indicate unlimited or N/A
+        if (is_string($value)) {
+            $lowerValue = strtolower(trim($value));
+            if (in_array($lowerValue, ['unlimited', 'n/a', 'na', '-', '∞'])) {
+                return 0; // Treat unlimited as 0 for calculation purposes
+            }
+        }
+        
+        // Convert to numeric, return 0 if not numeric
+        if (is_numeric($value)) {
+            return (float) $value;
+        }
+        
+        return 0;
+    }
+    
+    /**
+     * Format bytes to human readable format with special handling for non-numeric values
+     * 
+     * @param mixed $bytes Byte value (could be numeric or string like 'unlimited')
+     * @return string Formatted size or appropriate label
+     */
+    private function formatBytesForDisplay($bytes)
+    {
+        // Handle null or empty values
+        if ($bytes === null || $bytes === '') {
+            return 'N/A';
+        }
+        
+        // Handle string values that indicate unlimited or special cases
+        if (is_string($bytes)) {
+            $lowerValue = strtolower(trim($bytes));
+            if (in_array($lowerValue, ['unlimited', '∞'])) {
+                return 'Unlimited';
+            }
+            if (in_array($lowerValue, ['n/a', 'na', '-'])) {
+                return 'N/A';
+            }
+        }
+        
+        // Ensure numeric value before formatting
+        $numericBytes = $this->sanitizeNumericValue($bytes);
+        if ($numericBytes <= 0) {
+            return 'N/A';
+        }
+        
+        return $this->formatBytes($numericBytes);
     }
 
     /**

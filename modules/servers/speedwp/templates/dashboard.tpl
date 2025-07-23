@@ -4,11 +4,15 @@
  * This template displays hosting account information and WordPress management
  * interface in the WHMCS client area for SpeedWP server module services.
  * 
+ * SECURITY NOTE: All arithmetic operations (division, multiplication) are protected
+ * against non-numeric values like 'unlimited', 'N/A', null, or empty strings to
+ * prevent PHP 8+ TypeError exceptions. Always validate numeric values before math operations.
+ * 
  * Available Variables:
  * - $domain: Primary domain name
  * - $username: cPanel username  
  * - $wp_details: WordPress site details array
- * - $hosting_details: Hosting account details array
+ * - $hosting_details: Hosting account details array (values pre-sanitized by controller)
  * - $service_id: WHMCS service ID
  * - $show_wordpress_section: Boolean whether to show WordPress section
  * - $demo_mode: Boolean indicating demo mode
@@ -63,39 +67,69 @@
                         <div class="col-md-6">
                             <h5><i class="fa fa-bar-chart"></i> Resource Usage</h5>
                             
-                            {* Disk Usage *}
+                            {* Disk Usage - Safe calculation with numeric validation *}
                             <div class="usage-item" style="margin-bottom: 15px;">
                                 <strong>Disk Space:</strong>
                                 <div class="progress" style="margin-top: 5px; margin-bottom: 5px;">
                                     {assign var="disk_percent" value=0}
-                                    {if $hosting_details.disk_limit > 0}
+                                    {* Only calculate percentage if both values are numeric and limit > 0 *}
+                                    {if is_numeric($hosting_details.disk_usage) && is_numeric($hosting_details.disk_limit) && $hosting_details.disk_limit > 0}
                                         {assign var="disk_percent" value=($hosting_details.disk_usage / $hosting_details.disk_limit * 100)|round:1}
+                                        {if $disk_percent > 100}{assign var="disk_percent" value=100}{/if}
                                     {/if}
                                     <div class="progress-bar {if $disk_percent > 80}progress-bar-danger{elseif $disk_percent > 60}progress-bar-warning{else}progress-bar-success{/if}" 
-                                         style="width: {$disk_percent|min:100}%">
+                                         style="width: {$disk_percent}%">
                                         {$disk_percent}%
                                     </div>
                                 </div>
                                 <small class="text-muted">
-                                    {($hosting_details.disk_usage/1024/1024)|round:1} MB / {($hosting_details.disk_limit/1024/1024)|round:1} MB used
+                                    {* Safe formatting with fallback labels *}
+                                    {if is_numeric($hosting_details.disk_usage) && $hosting_details.disk_usage > 0}
+                                        {($hosting_details.disk_usage/1024/1024)|round:1} MB
+                                    {else}
+                                        0 MB
+                                    {/if}
+                                    {' / '}
+                                    {if is_numeric($hosting_details.disk_limit) && $hosting_details.disk_limit > 0}
+                                        {($hosting_details.disk_limit/1024/1024)|round:1} MB used
+                                    {elseif $hosting_details.disk_limit|lower == 'unlimited' || $hosting_details.disk_limit == '∞'}
+                                        Unlimited
+                                    {else}
+                                        N/A
+                                    {/if}
                                 </small>
                             </div>
                             
-                            {* Bandwidth Usage *}
+                            {* Bandwidth Usage - Safe calculation with numeric validation *}
                             <div class="usage-item">
                                 <strong>Bandwidth:</strong>
                                 <div class="progress" style="margin-top: 5px; margin-bottom: 5px;">
                                     {assign var="bw_percent" value=0}
-                                    {if $hosting_details.bandwidth_limit > 0}
+                                    {* Only calculate percentage if both values are numeric and limit > 0 *}
+                                    {if is_numeric($hosting_details.bandwidth_usage) && is_numeric($hosting_details.bandwidth_limit) && $hosting_details.bandwidth_limit > 0}
                                         {assign var="bw_percent" value=($hosting_details.bandwidth_usage / $hosting_details.bandwidth_limit * 100)|round:1}
+                                        {if $bw_percent > 100}{assign var="bw_percent" value=100}{/if}
                                     {/if}
                                     <div class="progress-bar {if $bw_percent > 80}progress-bar-danger{elseif $bw_percent > 60}progress-bar-warning{else}progress-bar-success{/if}" 
-                                         style="width: {$bw_percent|min:100}%">
+                                         style="width: {$bw_percent}%">
                                         {$bw_percent}%
                                     </div>
                                 </div>
                                 <small class="text-muted">
-                                    {($hosting_details.bandwidth_usage/1024/1024)|round:1} MB / {($hosting_details.bandwidth_limit/1024/1024)|round:1} MB used
+                                    {* Safe formatting with fallback labels *}
+                                    {if is_numeric($hosting_details.bandwidth_usage) && $hosting_details.bandwidth_usage > 0}
+                                        {($hosting_details.bandwidth_usage/1024/1024)|round:1} MB
+                                    {else}
+                                        0 MB
+                                    {/if}
+                                    {' / '}
+                                    {if is_numeric($hosting_details.bandwidth_limit) && $hosting_details.bandwidth_limit > 0}
+                                        {($hosting_details.bandwidth_limit/1024/1024)|round:1} MB used
+                                    {elseif $hosting_details.bandwidth_limit|lower == 'unlimited' || $hosting_details.bandwidth_limit == '∞'}
+                                        Unlimited
+                                    {else}
+                                        N/A
+                                    {/if}
                                 </small>
                             </div>
                         </div>
