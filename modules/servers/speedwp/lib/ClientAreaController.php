@@ -299,13 +299,6 @@ class SpeedWP_ClientAreaController
             ];
         }
     }
-        } catch (Exception $e) {
-            return [
-                'success' => false,
-                'message' => 'Error resetting password: ' . $e->getMessage()
-            ];
-        }
-    }
 
     /**
      * Toggle WordPress auto-updates via AJAX
