@@ -66,6 +66,22 @@ function speedwp_ConfigOptions()
             'Description' => 'WHM password or API token (recommended)'
         ],
         
+        // cPanel package configuration
+        'Package Name' => [
+            'Type' => 'text',
+            'Size' => '20',
+            'Default' => 'default',
+            'Description' => 'cPanel package/plan name to use for new accounts (must exist on server)'
+        ],
+        
+        // cPanel package configuration
+        'Package Name' => [
+            'Type' => 'text',
+            'Size' => '20',
+            'Default' => 'default',
+            'Description' => 'cPanel package/plan name to use for new accounts (must exist on server)'
+        ],
+        
         // WordPress/WP Toolkit settings
         'Auto-Install WordPress' => [
             'Type' => 'yesno',
@@ -117,32 +133,65 @@ function speedwp_ConfigOptions()
 function speedwp_CreateAccount($params)
 {
     try {
+        // Validate required parameters
+        $requiredParams = ['domain', 'username', 'password', 'clientsdetails'];
+        foreach ($requiredParams as $param) {
+            if (empty($params[$param])) {
+                throw new Exception("Missing required parameter: {$param}");
+            }
+        }
+        
+        // Sanitize inputs
+        $domain = filter_var(trim($params['domain']), FILTER_SANITIZE_STRING);
+        $username = preg_replace('/[^a-zA-Z0-9_-]/', '', trim($params['username']));
+        
+        if (!$domain) {
+            throw new Exception("Invalid domain name provided");
+        }
+        
+        if (!$username || strlen($username) < 3) {
+            throw new Exception("Invalid username provided (minimum 3 characters, alphanumeric only)");
+        }
+        
+        // Validate domain format
+        if (!filter_var($domain, FILTER_VALIDATE_DOMAIN, FILTER_FLAG_HOSTNAME)) {
+            // Additional basic domain validation
+            if (!preg_match('/^[a-zA-Z0-9][a-zA-Z0-9-]{1,61}[a-zA-Z0-9]\.[a-zA-Z]{2,}$/', $domain)) {
+                throw new Exception("Invalid domain format: {$domain}");
+            }
+        }
+        
         // Log account creation attempt
-        logActivity("SpeedWP: Creating account for {$params['domain']} (Client: {$params['clientsdetails']['firstname']} {$params['clientsdetails']['lastname']})");
+        logActivity("SpeedWP: Creating account for {$domain} (Client: {$params['clientsdetails']['firstname']} {$params['clientsdetails']['lastname']})");
         
         // Initialize cPanel API connection
         require_once __DIR__ . '/lib/CpanelApi.php';
         $cpanel = new SpeedWP_CpanelApi([
             'host' => $params['serverhostname'] ?: $params['configoption1'],
-            'port' => $params['configoption2'] ?: 2087,
+            'port' => intval($params['configoption2'] ?: 2087),
             'username' => $params['serverusername'] ?: $params['configoption3'],
             'password' => $params['serverpassword'] ?: $params['configoption4']
         ]);
         
         // Prepare account details
+        $packageName = trim($params['configoption5']) ?: $params['packagename'] ?: 'default';
         $accountDetails = [
-            'user' => $params['username'],
+            'user' => $username,
             'pass' => $params['password'],
-            'domain' => $params['domain'],
-            'plan' => $params['packagename'] ?: 'default',
-            'contactemail' => $params['clientsdetails']['email'],
-            'quota' => $params['configoptions']['Disk Space'] ?? 0,
+            'domain' => $domain,
+            'plan' => $packageName,
+            'contactemail' => filter_var($params['clientsdetails']['email'], FILTER_VALIDATE_EMAIL),
+            'quota' => max(0, intval($params['configoptions']['Disk Space'] ?? 0)),
             'hasshell' => 0,
             'maxpop' => $params['configoptions']['Email Accounts'] ?? 'unlimited',
             'maxsub' => $params['configoptions']['Subdomains'] ?? 'unlimited',
             'maxpark' => $params['configoptions']['Parked Domains'] ?? 'unlimited',
             'maxaddon' => $params['configoptions']['Addon Domains'] ?? 'unlimited'
         ];
+        
+        if (!$accountDetails['contactemail']) {
+            throw new Exception("Invalid email address provided");
+        }
         
         // Create cPanel account
         $result = $cpanel->createAccount($accountDetails);
@@ -152,38 +201,48 @@ function speedwp_CreateAccount($params)
         }
         
         // Install WordPress if enabled
-        if ($params['configoption5'] === 'on') {
+        if ($params['configoption6'] === 'on') { // Auto-Install WordPress is now option 6
+            $adminUsername = preg_replace('/[^a-zA-Z0-9_]/', '', trim($params['configoption8']) ?: 'admin');
+            $wpVersion = in_array($params['configoption7'], ['latest', '6.4', '6.3', '6.2']) 
+                ? $params['configoption7'] : 'latest';
+            
             $wpResult = $cpanel->installWordPress([
-                'domain' => $params['domain'],
-                'username' => $params['username'],
-                'admin_user' => $params['configoption7'] ?: 'admin',
+                'domain' => $domain,
+                'username' => $username,
+                'admin_user' => $adminUsername,
                 'admin_pass' => speedwp_generatePassword(12),
-                'admin_email' => $params['clientsdetails']['email'],
-                'site_title' => $params['domain'] . ' - WordPress Site',
-                'version' => $params['configoption6'] ?: 'latest',
-                'enable_ssl' => $params['configoption8'] === 'on',
-                'enable_backups' => $params['configoption9'] === 'on',
-                'backup_frequency' => $params['configoption10'] ?: 'weekly'
+                'admin_email' => $accountDetails['contactemail'],
+                'site_title' => htmlspecialchars($domain . ' - WordPress Site'),
+                'version' => $wpVersion,
+                'enable_ssl' => $params['configoption9'] === 'on',
+                'enable_backups' => $params['configoption10'] === 'on',
+                'backup_frequency' => in_array($params['configoption11'], ['daily', 'weekly', 'monthly']) 
+                    ? $params['configoption11'] : 'weekly'
             ]);
             
             if ($wpResult['success']) {
-                // Store WordPress details in custom fields
-                speedwp_updateCustomField($params['serviceid'], 'WordPress Admin URL', $wpResult['admin_url']);
-                speedwp_updateCustomField($params['serviceid'], 'WordPress Admin User', $wpResult['admin_user']);
-                speedwp_updateCustomField($params['serviceid'], 'WordPress Admin Password', encrypt($wpResult['admin_pass']));
+                // Store WordPress details in custom fields (with error handling)
+                try {
+                    speedwp_updateCustomField($params['serviceid'], 'WordPress Admin URL', $wpResult['admin_url']);
+                    speedwp_updateCustomField($params['serviceid'], 'WordPress Admin User', $wpResult['admin_user']);
+                    speedwp_updateCustomField($params['serviceid'], 'WordPress Admin Password', encrypt($wpResult['admin_pass']));
+                } catch (Exception $e) {
+                    logActivity("SpeedWP: Warning - Could not update custom fields: " . $e->getMessage());
+                }
                 
-                logActivity("SpeedWP: WordPress installed successfully for {$params['domain']} - Admin: {$wpResult['admin_user']}");
+                logActivity("SpeedWP: WordPress installed successfully for {$domain} - Admin: {$wpResult['admin_user']}");
             } else {
-                logActivity("SpeedWP: WordPress installation failed for {$params['domain']}: " . $wpResult['message']);
+                logActivity("SpeedWP: WordPress installation failed for {$domain}: " . $wpResult['message']);
                 // Don't fail account creation if WordPress install fails
             }
         }
         
-        logActivity("SpeedWP: Account created successfully for {$params['domain']}");
+        logActivity("SpeedWP: Account created successfully for {$domain}");
         return 'success';
         
     } catch (Exception $e) {
-        logActivity("SpeedWP: Account creation failed for {$params['domain']}: " . $e->getMessage());
+        $errorMsg = "Account creation failed for " . ($params['domain'] ?? 'unknown domain') . ": " . $e->getMessage();
+        logActivity("SpeedWP: " . $errorMsg);
         return "Error: " . $e->getMessage();
     }
 }
@@ -197,33 +256,46 @@ function speedwp_CreateAccount($params)
 function speedwp_SuspendAccount($params)
 {
     try {
-        logActivity("SpeedWP: Suspending account {$params['username']} on {$params['domain']}");
+        // Validate required parameters
+        if (empty($params['username']) || empty($params['domain'])) {
+            throw new Exception("Missing required parameters for account suspension");
+        }
+        
+        $username = preg_replace('/[^a-zA-Z0-9_-]/', '', trim($params['username']));
+        $domain = filter_var(trim($params['domain']), FILTER_SANITIZE_STRING);
+        
+        if (!$username) {
+            throw new Exception("Invalid username provided for suspension");
+        }
+        
+        logActivity("SpeedWP: Suspending account {$username} on {$domain}");
         
         require_once __DIR__ . '/lib/CpanelApi.php';
         $cpanel = new SpeedWP_CpanelApi([
             'host' => $params['serverhostname'] ?: $params['configoption1'],
-            'port' => $params['configoption2'] ?: 2087,
+            'port' => intval($params['configoption2'] ?: 2087),
             'username' => $params['serverusername'] ?: $params['configoption3'],
             'password' => $params['serverpassword'] ?: $params['configoption4']
         ]);
         
-        $result = $cpanel->suspendAccount($params['username'], 'Suspended via WHMCS');
+        $result = $cpanel->suspendAccount($username, 'Suspended via WHMCS');
         
         if (!$result['success']) {
             throw new Exception("Failed to suspend account: " . $result['message']);
         }
         
         // Also suspend WordPress site if it exists
-        $wpResult = $cpanel->suspendWordPressSite($params['domain']);
+        $wpResult = $cpanel->suspendWordPressSite($domain);
         if ($wpResult['success']) {
-            logActivity("SpeedWP: WordPress site suspended for {$params['domain']}");
+            logActivity("SpeedWP: WordPress site suspended for {$domain}");
         }
         
-        logActivity("SpeedWP: Account suspended successfully for {$params['domain']}");
+        logActivity("SpeedWP: Account suspended successfully for {$domain}");
         return 'success';
         
     } catch (Exception $e) {
-        logActivity("SpeedWP: Account suspension failed for {$params['domain']}: " . $e->getMessage());
+        $errorMsg = "Account suspension failed for " . ($params['domain'] ?? 'unknown domain') . ": " . $e->getMessage();
+        logActivity("SpeedWP: " . $errorMsg);
         return "Error: " . $e->getMessage();
     }
 }
@@ -237,33 +309,46 @@ function speedwp_SuspendAccount($params)
 function speedwp_UnsuspendAccount($params)
 {
     try {
-        logActivity("SpeedWP: Unsuspending account {$params['username']} on {$params['domain']}");
+        // Validate required parameters
+        if (empty($params['username']) || empty($params['domain'])) {
+            throw new Exception("Missing required parameters for account unsuspension");
+        }
+        
+        $username = preg_replace('/[^a-zA-Z0-9_-]/', '', trim($params['username']));
+        $domain = filter_var(trim($params['domain']), FILTER_SANITIZE_STRING);
+        
+        if (!$username) {
+            throw new Exception("Invalid username provided for unsuspension");
+        }
+        
+        logActivity("SpeedWP: Unsuspending account {$username} on {$domain}");
         
         require_once __DIR__ . '/lib/CpanelApi.php';
         $cpanel = new SpeedWP_CpanelApi([
             'host' => $params['serverhostname'] ?: $params['configoption1'],
-            'port' => $params['configoption2'] ?: 2087,
+            'port' => intval($params['configoption2'] ?: 2087),
             'username' => $params['serverusername'] ?: $params['configoption3'],
             'password' => $params['serverpassword'] ?: $params['configoption4']
         ]);
         
-        $result = $cpanel->unsuspendAccount($params['username']);
+        $result = $cpanel->unsuspendAccount($username);
         
         if (!$result['success']) {
             throw new Exception("Failed to unsuspend account: " . $result['message']);
         }
         
         // Also unsuspend WordPress site if it exists
-        $wpResult = $cpanel->unsuspendWordPressSite($params['domain']);
+        $wpResult = $cpanel->unsuspendWordPressSite($domain);
         if ($wpResult['success']) {
-            logActivity("SpeedWP: WordPress site unsuspended for {$params['domain']}");
+            logActivity("SpeedWP: WordPress site unsuspended for {$domain}");
         }
         
-        logActivity("SpeedWP: Account unsuspended successfully for {$params['domain']}");
+        logActivity("SpeedWP: Account unsuspended successfully for {$domain}");
         return 'success';
         
     } catch (Exception $e) {
-        logActivity("SpeedWP: Account unsuspension failed for {$params['domain']}: " . $e->getMessage());
+        $errorMsg = "Account unsuspension failed for " . ($params['domain'] ?? 'unknown domain') . ": " . $e->getMessage();
+        logActivity("SpeedWP: " . $errorMsg);
         return "Error: " . $e->getMessage();
     }
 }
@@ -277,35 +362,53 @@ function speedwp_UnsuspendAccount($params)
 function speedwp_TerminateAccount($params)
 {
     try {
-        logActivity("SpeedWP: Terminating account {$params['username']} on {$params['domain']}");
+        // Validate required parameters
+        if (empty($params['username']) || empty($params['domain'])) {
+            throw new Exception("Missing required parameters for account termination");
+        }
+        
+        $username = preg_replace('/[^a-zA-Z0-9_-]/', '', trim($params['username']));
+        $domain = filter_var(trim($params['domain']), FILTER_SANITIZE_STRING);
+        
+        if (!$username) {
+            throw new Exception("Invalid username provided for termination");
+        }
+        
+        logActivity("SpeedWP: Terminating account {$username} on {$domain}");
         
         require_once __DIR__ . '/lib/CpanelApi.php';
         $cpanel = new SpeedWP_CpanelApi([
             'host' => $params['serverhostname'] ?: $params['configoption1'],
-            'port' => $params['configoption2'] ?: 2087,
+            'port' => intval($params['configoption2'] ?: 2087),
             'username' => $params['serverusername'] ?: $params['configoption3'],
             'password' => $params['serverpassword'] ?: $params['configoption4']
         ]);
         
         // Create final backup before termination if enabled
-        if ($params['configoption9'] === 'on') {
-            $backupResult = $cpanel->createFinalBackup($params['username']);
-            if ($backupResult['success']) {
-                logActivity("SpeedWP: Final backup created for {$params['domain']} before termination");
+        if ($params['configoption10'] === 'on') { // Enable Backups is now option 10
+            try {
+                $backupResult = $cpanel->createFinalBackup($username);
+                if ($backupResult['success']) {
+                    logActivity("SpeedWP: Final backup created for {$domain} before termination");
+                }
+            } catch (Exception $e) {
+                logActivity("SpeedWP: Warning - Final backup failed for {$domain}: " . $e->getMessage());
+                // Continue with termination even if backup fails
             }
         }
         
-        $result = $cpanel->terminateAccount($params['username']);
+        $result = $cpanel->terminateAccount($username);
         
         if (!$result['success']) {
             throw new Exception("Failed to terminate account: " . $result['message']);
         }
         
-        logActivity("SpeedWP: Account terminated successfully for {$params['domain']}");
+        logActivity("SpeedWP: Account terminated successfully for {$domain}");
         return 'success';
         
     } catch (Exception $e) {
-        logActivity("SpeedWP: Account termination failed for {$params['domain']}: " . $e->getMessage());
+        $errorMsg = "Account termination failed for " . ($params['domain'] ?? 'unknown domain') . ": " . $e->getMessage();
+        logActivity("SpeedWP: " . $errorMsg);
         return "Error: " . $e->getMessage();
     }
 }
@@ -319,27 +422,44 @@ function speedwp_TerminateAccount($params)
 function speedwp_ChangePassword($params)
 {
     try {
-        logActivity("SpeedWP: Changing password for account {$params['username']} on {$params['domain']}");
+        // Validate required parameters
+        if (empty($params['username']) || empty($params['password']) || empty($params['domain'])) {
+            throw new Exception("Missing required parameters for password change");
+        }
+        
+        $username = preg_replace('/[^a-zA-Z0-9_-]/', '', trim($params['username']));
+        $domain = filter_var(trim($params['domain']), FILTER_SANITIZE_STRING);
+        
+        if (!$username) {
+            throw new Exception("Invalid username provided for password change");
+        }
+        
+        if (strlen($params['password']) < 8) {
+            throw new Exception("Password must be at least 8 characters long");
+        }
+        
+        logActivity("SpeedWP: Changing password for account {$username} on {$domain}");
         
         require_once __DIR__ . '/lib/CpanelApi.php';
         $cpanel = new SpeedWP_CpanelApi([
             'host' => $params['serverhostname'] ?: $params['configoption1'],
-            'port' => $params['configoption2'] ?: 2087,
+            'port' => intval($params['configoption2'] ?: 2087),
             'username' => $params['serverusername'] ?: $params['configoption3'],
             'password' => $params['serverpassword'] ?: $params['configoption4']
         ]);
         
-        $result = $cpanel->changeAccountPassword($params['username'], $params['password']);
+        $result = $cpanel->changeAccountPassword($username, $params['password']);
         
         if (!$result['success']) {
             throw new Exception("Failed to change password: " . $result['message']);
         }
         
-        logActivity("SpeedWP: Password changed successfully for {$params['domain']}");
+        logActivity("SpeedWP: Password changed successfully for {$domain}");
         return 'success';
         
     } catch (Exception $e) {
-        logActivity("SpeedWP: Password change failed for {$params['domain']}: " . $e->getMessage());
+        $errorMsg = "Password change failed for " . ($params['domain'] ?? 'unknown domain') . ": " . $e->getMessage();
+        logActivity("SpeedWP: " . $errorMsg);
         return "Error: " . $e->getMessage();
     }
 }
@@ -427,21 +547,36 @@ function speedwp_manageWordPress($params)
 function speedwp_resetWordPressPassword($params)
 {
     try {
+        // Validate required parameters
+        if (empty($params['domain'])) {
+            throw new Exception("Domain is required for WordPress password reset");
+        }
+        
+        $domain = filter_var(trim($params['domain']), FILTER_SANITIZE_STRING);
+        if (!$domain) {
+            throw new Exception("Invalid domain provided");
+        }
+        
         require_once __DIR__ . '/lib/CpanelApi.php';
         $cpanel = new SpeedWP_CpanelApi([
             'host' => $params['serverhostname'] ?: $params['configoption1'],
-            'port' => $params['configoption2'] ?: 2087,
+            'port' => intval($params['configoption2'] ?: 2087),
             'username' => $params['serverusername'] ?: $params['configoption3'],
             'password' => $params['serverpassword'] ?: $params['configoption4']
         ]);
         
         $newPassword = speedwp_generatePassword(12);
-        $result = $cpanel->resetWordPressPassword($params['domain'], $newPassword);
+        $result = $cpanel->resetWordPressPassword($domain, $newPassword);
         
         if ($result['success']) {
             // Update stored password
-            speedwp_updateCustomField($params['serviceid'], 'WordPress Admin Password', encrypt($newPassword));
-            return "WordPress password reset successfully. New password: " . $newPassword;
+            try {
+                speedwp_updateCustomField($params['serviceid'], 'WordPress Admin Password', encrypt($newPassword));
+            } catch (Exception $e) {
+                logActivity("SpeedWP: Warning - Could not update custom field for password reset: " . $e->getMessage());
+            }
+            
+            return "WordPress admin password reset successfully.\n\nNew password: " . $newPassword . "\n\nPlease save this password securely and log in to change it to something memorable.";
         } else {
             return "Error: " . $result['message'];
         }
@@ -460,18 +595,37 @@ function speedwp_resetWordPressPassword($params)
 function speedwp_createBackup($params)
 {
     try {
+        // Validate required parameters
+        if (empty($params['domain'])) {
+            throw new Exception("Domain is required for backup creation");
+        }
+        
+        $domain = filter_var(trim($params['domain']), FILTER_SANITIZE_STRING);
+        if (!$domain) {
+            throw new Exception("Invalid domain provided");
+        }
+        
         require_once __DIR__ . '/lib/CpanelApi.php';
         $cpanel = new SpeedWP_CpanelApi([
             'host' => $params['serverhostname'] ?: $params['configoption1'],
-            'port' => $params['configoption2'] ?: 2087,
+            'port' => intval($params['configoption2'] ?: 2087),
             'username' => $params['serverusername'] ?: $params['configoption3'],
             'password' => $params['serverpassword'] ?: $params['configoption4']
         ]);
         
-        $result = $cpanel->createWordPressBackup($params['domain']);
+        $result = $cpanel->createWordPressBackup($domain);
         
         if ($result['success']) {
-            return "Backup created successfully: " . $result['backup_name'];
+            $message = "WordPress backup created successfully!\n\n";
+            $message .= "Backup Name: " . $result['backup_name'] . "\n";
+            if (isset($result['backup_size'])) {
+                $message .= "Size: " . $result['backup_size'] . "\n";
+            }
+            if (isset($result['created_at'])) {
+                $message .= "Created: " . $result['created_at'];
+            }
+            
+            return $message;
         } else {
             return "Error: " . $result['message'];
         }
@@ -508,12 +662,34 @@ function speedwp_viewWordPressDetails($params)
 function speedwp_TestConnection($params)
 {
     try {
+        // Validate connection parameters
+        $host = trim($params['serverhostname'] ?: $params['configoption1']);
+        $port = intval($params['configoption2'] ?: 2087);
+        $username = trim($params['serverusername'] ?: $params['configoption3']);
+        $password = $params['serverpassword'] ?: $params['configoption4'];
+        
+        if (!$host) {
+            throw new Exception("Server hostname is required");
+        }
+        
+        if (!$username) {
+            throw new Exception("Server username is required");
+        }
+        
+        if (!$password) {
+            throw new Exception("Server password/API token is required");
+        }
+        
+        if ($port < 1 || $port > 65535) {
+            throw new Exception("Invalid port number: {$port}");
+        }
+        
         require_once __DIR__ . '/lib/CpanelApi.php';
         $cpanel = new SpeedWP_CpanelApi([
-            'host' => $params['serverhostname'] ?: $params['configoption1'],
-            'port' => $params['configoption2'] ?: 2087,
-            'username' => $params['serverusername'] ?: $params['configoption3'],
-            'password' => $params['serverpassword'] ?: $params['configoption4']
+            'host' => $host,
+            'port' => $port,
+            'username' => $username,
+            'password' => $password
         ]);
         
         $result = $cpanel->testConnection();
@@ -547,29 +723,41 @@ function speedwp_TestConnection($params)
 function speedwp_UsageUpdate($params)
 {
     try {
+        // Validate required parameters
+        if (empty($params['username'])) {
+            logActivity("SpeedWP: Warning - No username provided for usage update");
+            return [];
+        }
+        
+        $username = preg_replace('/[^a-zA-Z0-9_-]/', '', trim($params['username']));
+        if (!$username) {
+            logActivity("SpeedWP: Warning - Invalid username for usage update");
+            return [];
+        }
+        
         require_once __DIR__ . '/lib/CpanelApi.php';
         $cpanel = new SpeedWP_CpanelApi([
             'host' => $params['serverhostname'] ?: $params['configoption1'],
-            'port' => $params['configoption2'] ?: 2087,
+            'port' => intval($params['configoption2'] ?: 2087),
             'username' => $params['serverusername'] ?: $params['configoption3'],
             'password' => $params['serverpassword'] ?: $params['configoption4']
         ]);
         
-        $usage = $cpanel->getAccountUsage($params['username']);
+        $usage = $cpanel->getAccountUsage($username);
         
         if ($usage['success']) {
             return [
-                'diskusage' => $usage['disk_used'],
-                'disklimit' => $usage['disk_limit'],
-                'bwusage' => $usage['bandwidth_used'],
-                'bwlimit' => $usage['bandwidth_limit']
+                'diskusage' => max(0, intval($usage['disk_used'])),
+                'disklimit' => max(0, intval($usage['disk_limit'])),
+                'bwusage' => max(0, intval($usage['bandwidth_used'])),
+                'bwlimit' => max(0, intval($usage['bandwidth_limit']))
             ];
         }
         
         return [];
         
     } catch (Exception $e) {
-        logActivity("SpeedWP: Usage update failed for {$params['domain']}: " . $e->getMessage());
+        logActivity("SpeedWP: Usage update failed for " . ($params['domain'] ?? $params['username'] ?? 'unknown') . ": " . $e->getMessage());
         return [];
     }
 }

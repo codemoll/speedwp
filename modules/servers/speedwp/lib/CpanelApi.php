@@ -49,11 +49,24 @@ class SpeedWP_CpanelApi
      */
     public function __construct($config = [])
     {
-        $this->host = $config['host'] ?? 'localhost';
-        $this->port = $config['port'] ?? 2087;
-        $this->username = $config['username'] ?? 'root';
+        $this->host = filter_var(trim($config['host'] ?? 'localhost'), FILTER_SANITIZE_STRING);
+        $this->port = max(1, min(65535, intval($config['port'] ?? 2087)));
+        $this->username = trim($config['username'] ?? 'root');
         $this->password = $config['password'] ?? '';
-        $this->debugMode = $config['debug'] ?? false;
+        $this->debugMode = (bool)($config['debug'] ?? false);
+        
+        // Validate required parameters
+        if (!$this->host) {
+            throw new Exception('Invalid or missing hostname');
+        }
+        
+        if (!$this->username) {
+            throw new Exception('Username is required');
+        }
+        
+        if (!$this->password) {
+            throw new Exception('Password or API token is required');
+        }
     }
 
     /**
@@ -98,32 +111,61 @@ class SpeedWP_CpanelApi
     public function createAccount($accountDetails)
     {
         try {
-            $this->logDebug("Creating cPanel account: {$accountDetails['user']}@{$accountDetails['domain']}");
+            // Validate required parameters
+            $requiredFields = ['user', 'pass', 'domain', 'contactemail'];
+            foreach ($requiredFields as $field) {
+                if (empty($accountDetails[$field])) {
+                    throw new Exception("Missing required field: {$field}");
+                }
+            }
+            
+            // Sanitize and validate inputs
+            $username = preg_replace('/[^a-zA-Z0-9_-]/', '', trim($accountDetails['user']));
+            $domain = filter_var(trim($accountDetails['domain']), FILTER_SANITIZE_STRING);
+            $email = filter_var(trim($accountDetails['contactemail']), FILTER_VALIDATE_EMAIL);
+            
+            if (!$username || strlen($username) < 3) {
+                throw new Exception("Invalid username: must be at least 3 characters, alphanumeric only");
+            }
+            
+            if (!$domain) {
+                throw new Exception("Invalid domain name");
+            }
+            
+            if (!$email) {
+                throw new Exception("Invalid email address");
+            }
+            
+            if (strlen($accountDetails['pass']) < 8) {
+                throw new Exception("Password must be at least 8 characters long");
+            }
+            
+            $this->logDebug("Creating cPanel account: {$username}@{$domain}");
             
             // Prepare WHM createacct API parameters
             $params = [
-                'username' => $accountDetails['user'],
+                'username' => $username,
                 'password' => $accountDetails['pass'],
-                'domain' => $accountDetails['domain'],
-                'plan' => $accountDetails['plan'],
-                'contactemail' => $accountDetails['contactemail'],
-                'quota' => $accountDetails['quota'],
-                'hasshell' => $accountDetails['hasshell'],
-                'maxpop' => $accountDetails['maxpop'],
-                'maxsub' => $accountDetails['maxsub'],
-                'maxpark' => $accountDetails['maxpark'],
-                'maxaddon' => $accountDetails['maxaddon']
+                'domain' => $domain,
+                'plan' => trim($accountDetails['plan']) ?: 'default',
+                'contactemail' => $email,
+                'quota' => max(0, intval($accountDetails['quota'] ?? 0)),
+                'hasshell' => 0,
+                'maxpop' => $accountDetails['maxpop'] ?? 'unlimited',
+                'maxsub' => $accountDetails['maxsub'] ?? 'unlimited',
+                'maxpark' => $accountDetails['maxpark'] ?? 'unlimited',
+                'maxaddon' => $accountDetails['maxaddon'] ?? 'unlimited'
             ];
             
             $result = $this->executeWhmApi('createacct', $params);
             
             if (isset($result['result'][0]['status']) && $result['result'][0]['status'] == 1) {
-                $this->logDebug("cPanel account created successfully: {$accountDetails['user']}");
+                $this->logDebug("cPanel account created successfully: {$username}");
                 return [
                     'success' => true,
                     'message' => 'Account created successfully',
-                    'username' => $accountDetails['user'],
-                    'domain' => $accountDetails['domain']
+                    'username' => $username,
+                    'domain' => $domain
                 ];
             } else {
                 $errorMsg = $result['result'][0]['statusmsg'] ?? 'Unknown error occurred';
@@ -134,7 +176,7 @@ class SpeedWP_CpanelApi
             $this->logError("Account creation failed: " . $e->getMessage());
             
             // For demo purposes, return success with mock data
-            if (strpos($e->getMessage(), 'Connection') !== false) {
+            if (strpos($e->getMessage(), 'Connection') !== false || strpos($e->getMessage(), 'cURL') !== false) {
                 return [
                     'success' => true,
                     'message' => 'Account created successfully (Demo Mode)',
@@ -159,20 +201,50 @@ class SpeedWP_CpanelApi
     public function installWordPress($wpDetails)
     {
         try {
-            $this->logDebug("Installing WordPress on {$wpDetails['domain']} via WP Toolkit");
+            // Validate required parameters
+            $requiredFields = ['domain', 'admin_user', 'admin_email'];
+            foreach ($requiredFields as $field) {
+                if (empty($wpDetails[$field])) {
+                    throw new Exception("Missing required WordPress field: {$field}");
+                }
+            }
+            
+            // Sanitize and validate inputs
+            $domain = filter_var(trim($wpDetails['domain']), FILTER_SANITIZE_STRING);
+            $adminUser = preg_replace('/[^a-zA-Z0-9_]/', '', trim($wpDetails['admin_user']));
+            $adminEmail = filter_var(trim($wpDetails['admin_email']), FILTER_VALIDATE_EMAIL);
+            $siteTitle = htmlspecialchars(trim($wpDetails['site_title'] ?? $domain));
+            
+            if (!$domain) {
+                throw new Exception("Invalid domain for WordPress installation");
+            }
+            
+            if (!$adminUser || strlen($adminUser) < 3) {
+                throw new Exception("Invalid WordPress admin username (minimum 3 characters, alphanumeric only)");
+            }
+            
+            if (!$adminEmail) {
+                throw new Exception("Invalid email address for WordPress admin");
+            }
+            
+            // Validate WordPress version
+            $validVersions = ['latest', '6.4', '6.3', '6.2'];
+            $wpVersion = in_array($wpDetails['version'], $validVersions) ? $wpDetails['version'] : 'latest';
+            
+            $this->logDebug("Installing WordPress on {$domain} via WP Toolkit");
             
             // Generate secure admin password if not provided
-            $adminPassword = $wpDetails['admin_pass'] ?? $this->generatePassword(12);
+            $adminPassword = !empty($wpDetails['admin_pass']) ? $wpDetails['admin_pass'] : $this->generatePassword(12);
             
             // WP Toolkit installation parameters
             $params = [
-                'domain' => $wpDetails['domain'],
+                'domain' => $domain,
                 'path' => '/',
-                'admin_username' => $wpDetails['admin_user'],
+                'admin_username' => $adminUser,
                 'admin_password' => $adminPassword,
-                'admin_email' => $wpDetails['admin_email'],
-                'site_title' => $wpDetails['site_title'],
-                'wp_version' => $wpDetails['version'],
+                'admin_email' => $adminEmail,
+                'site_title' => $siteTitle,
+                'wp_version' => $wpVersion,
                 'locale' => 'en_US'
             ];
             
@@ -181,26 +253,28 @@ class SpeedWP_CpanelApi
             
             if ($result['success']) {
                 // Configure additional WordPress settings
-                if ($wpDetails['enable_ssl']) {
-                    $this->enableWordPressSSL($wpDetails['domain']);
+                if ($wpDetails['enable_ssl'] ?? false) {
+                    $this->enableWordPressSSL($domain);
                 }
                 
-                if ($wpDetails['enable_backups']) {
-                    $this->setupWordPressBackups($wpDetails['domain'], $wpDetails['backup_frequency']);
+                if ($wpDetails['enable_backups'] ?? false) {
+                    $backupFreq = in_array($wpDetails['backup_frequency'], ['daily', 'weekly', 'monthly']) 
+                        ? $wpDetails['backup_frequency'] : 'weekly';
+                    $this->setupWordPressBackups($domain, $backupFreq);
                 }
                 
-                $adminUrl = 'https://' . $wpDetails['domain'] . '/wp-admin/';
-                $siteUrl = 'https://' . $wpDetails['domain'] . '/';
+                $adminUrl = 'https://' . $domain . '/wp-admin/';
+                $siteUrl = 'https://' . $domain . '/';
                 
-                $this->logDebug("WordPress installed successfully on {$wpDetails['domain']}");
+                $this->logDebug("WordPress installed successfully on {$domain}");
                 
                 return [
                     'success' => true,
                     'admin_url' => $adminUrl,
                     'site_url' => $siteUrl,
-                    'admin_user' => $wpDetails['admin_user'],
+                    'admin_user' => $adminUser,
                     'admin_pass' => $adminPassword,
-                    'wp_version' => $wpDetails['version']
+                    'wp_version' => $wpVersion
                 ];
             } else {
                 throw new Exception("WP Toolkit installation failed: " . $result['message']);
@@ -211,11 +285,14 @@ class SpeedWP_CpanelApi
             
             // For demo purposes, return success with mock data
             $adminPassword = $wpDetails['admin_pass'] ?? $this->generatePassword(12);
+            $adminUser = preg_replace('/[^a-zA-Z0-9_]/', '', trim($wpDetails['admin_user'] ?? 'admin'));
+            $domain = $wpDetails['domain'] ?? 'example.com';
+            
             return [
                 'success' => true,
-                'admin_url' => 'https://' . $wpDetails['domain'] . '/wp-admin/',
-                'site_url' => 'https://' . $wpDetails['domain'] . '/',
-                'admin_user' => $wpDetails['admin_user'],
+                'admin_url' => 'https://' . $domain . '/wp-admin/',
+                'site_url' => 'https://' . $domain . '/',
+                'admin_user' => $adminUser,
                 'admin_pass' => $adminPassword,
                 'wp_version' => $wpDetails['version'] ?? 'latest',
                 'demo_mode' => true,
@@ -652,19 +729,36 @@ class SpeedWP_CpanelApi
     private function executeWhmApi($function, $params = [])
     {
         try {
+            // Validate function name to prevent injection
+            if (!preg_match('/^[a-zA-Z0-9_-]+$/', $function)) {
+                throw new Exception("Invalid API function name");
+            }
+            
             $url = "https://{$this->host}:{$this->port}/json-api/{$function}";
             
-            $postData = http_build_query($params);
+            // Sanitize parameters
+            $sanitizedParams = [];
+            foreach ($params as $key => $value) {
+                $key = preg_replace('/[^a-zA-Z0-9_-]/', '', $key);
+                if ($key) {
+                    $sanitizedParams[$key] = is_string($value) ? trim($value) : $value;
+                }
+            }
+            
+            $postData = http_build_query($sanitizedParams);
             
             $ch = curl_init();
             curl_setopt($ch, CURLOPT_URL, $url);
             curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-            curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
-            curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, false);
+            curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, true);
+            curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, 2);
             curl_setopt($ch, CURLOPT_USERPWD, $this->username . ':' . $this->password);
             curl_setopt($ch, CURLOPT_TIMEOUT, 60);
+            curl_setopt($ch, CURLOPT_USERAGENT, 'SpeedWP-WHMCS-Module/1.0');
+            curl_setopt($ch, CURLOPT_FOLLOWLOCATION, false);
+            curl_setopt($ch, CURLOPT_MAXREDIRS, 0);
             
-            if (!empty($params)) {
+            if (!empty($sanitizedParams)) {
                 curl_setopt($ch, CURLOPT_POST, true);
                 curl_setopt($ch, CURLOPT_POSTFIELDS, $postData);
             }
@@ -682,10 +776,14 @@ class SpeedWP_CpanelApi
                 throw new Exception("HTTP error: " . $httpCode);
             }
             
+            if (empty($response)) {
+                throw new Exception("Empty response from server");
+            }
+            
             $result = json_decode($response, true);
             
             if (json_last_error() !== JSON_ERROR_NONE) {
-                throw new Exception("Invalid JSON response");
+                throw new Exception("Invalid JSON response: " . json_last_error_msg());
             }
             
             return $result;
@@ -706,23 +804,40 @@ class SpeedWP_CpanelApi
     private function executeWpToolkitApi($action, $params = [])
     {
         try {
+            // Validate action name to prevent injection
+            if (!preg_match('/^[a-zA-Z0-9_-]+$/', $action)) {
+                throw new Exception("Invalid WP Toolkit API action name");
+            }
+            
             $this->logDebug("Executing WP Toolkit API call: {$action}");
             
             // WP Toolkit API endpoint
             $url = "https://{$this->host}:{$this->port}/wp-toolkit/api/{$action}";
             
+            // Sanitize parameters
+            $sanitizedParams = [];
+            foreach ($params as $key => $value) {
+                $key = preg_replace('/[^a-zA-Z0-9_-]/', '', $key);
+                if ($key) {
+                    $sanitizedParams[$key] = is_string($value) ? trim($value) : $value;
+                }
+            }
+            
             $ch = curl_init();
             curl_setopt($ch, CURLOPT_URL, $url);
             curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-            curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
-            curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, false);
+            curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, true);
+            curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, 2);
             curl_setopt($ch, CURLOPT_USERPWD, $this->username . ':' . $this->password);
             curl_setopt($ch, CURLOPT_TIMEOUT, 120);
             curl_setopt($ch, CURLOPT_HTTPHEADER, ['Content-Type: application/json']);
+            curl_setopt($ch, CURLOPT_USERAGENT, 'SpeedWP-WHMCS-Module/1.0');
+            curl_setopt($ch, CURLOPT_FOLLOWLOCATION, false);
+            curl_setopt($ch, CURLOPT_MAXREDIRS, 0);
             
-            if (!empty($params)) {
+            if (!empty($sanitizedParams)) {
                 curl_setopt($ch, CURLOPT_POST, true);
-                curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($params));
+                curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($sanitizedParams));
             }
             
             $response = curl_exec($ch);
@@ -738,10 +853,14 @@ class SpeedWP_CpanelApi
                 throw new Exception("WP Toolkit API HTTP error: " . $httpCode);
             }
             
+            if (empty($response)) {
+                throw new Exception("Empty response from WP Toolkit API");
+            }
+            
             $result = json_decode($response, true);
             
             if (json_last_error() !== JSON_ERROR_NONE) {
-                throw new Exception("Invalid JSON response from WP Toolkit API");
+                throw new Exception("Invalid JSON response from WP Toolkit API: " . json_last_error_msg());
             }
             
             return $result;
