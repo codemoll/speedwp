@@ -18,9 +18,34 @@ A comprehensive WordPress management addon for WHMCS that enables hosting client
 
 - **WHMCS**: Version 8.0 or later (compatible with 8.x+)
 - **PHP**: Version 7.4 or later (tested with PHP 7.4+ and 8.x)
-- **cPanel**: Hosting environment with API access enabled
+- **cPanel/WHM**: Server with valid API access and WP Toolkit installed
 - **MySQL**: Version 5.7 or later
-- **SSL**: Certificate for secure API communication
+- **SSL**: Valid SSL certificate for secure API communication
+- **API Access**: WHM root or reseller account with API token access
+
+### Critical Production Setup Requirements
+
+⚠️ **Important**: This module requires proper cPanel/WHM API connectivity for production use.
+
+#### 1. cPanel/WHM Server Requirements
+- **WHM Access**: Root or reseller account with full API access
+- **WP Toolkit**: Must be installed and functional on the cPanel server
+- **API Authentication**: API tokens are strongly recommended over passwords
+- **Network Access**: WHMCS server must be able to reach cPanel server on HTTPS ports
+- **SSL/TLS**: Valid SSL certificates on both WHMCS and cPanel servers
+
+#### 2. Required cPanel Features
+- **Account Management**: createacct, suspendacct, unsuspendacct, removeacct, passwd
+- **Usage Statistics**: accountsummary API function access
+- **WP Toolkit Integration**: Full WP Toolkit API access for WordPress management
+- **SSL Management**: AutoSSL or Let's Encrypt integration
+- **Backup System**: Full backup API access (fullbackup function)
+
+#### 3. Network and Security
+- **Firewall Rules**: Ensure WHMCS server IP is whitelisted in cPanel firewall
+- **API Rate Limits**: Configure appropriate rate limiting to prevent API abuse
+- **SSL Verification**: Enable SSL verification for all API communications
+- **Credential Security**: Use API tokens instead of passwords when possible
 
 ### Step-by-Step Setup Instructions
 
@@ -318,6 +343,73 @@ The addon is designed for extensibility:
    - Use prepared statements for all database queries
    - Validate and sanitize data before storage
    - Implement proper access controls
+
+## Production Troubleshooting
+
+### Common Production Issues
+
+#### 1. Account Creation Failures
+**Symptoms**: Accounts fail to create, no demo mode fallbacks
+
+**Debug Steps**:
+1. Enable "Debug Mode" in server configuration
+2. Check WHMCS Activity Log for detailed API errors
+3. Verify cPanel server connectivity: `telnet your-cpanel-server.com 2087`
+4. Test WHM API access manually
+5. Confirm package name exists on cPanel server
+6. Check disk space and account limits on cPanel server
+
+**Required WHMCS Configuration**:
+- Server IP/Hostname: Must be reachable from WHMCS
+- WHM Port: Usually 2087 (HTTPS) or 2086 (HTTP - not recommended) 
+- WHM Username: Valid root or reseller username
+- WHM Password/API Token: Valid credentials with full API access
+- Package Name: Must exist as a hosting package on the cPanel server
+
+#### 2. WordPress Installation Failures
+**Symptoms**: cPanel account created but WordPress installation fails
+
+**Debug Steps**:
+1. Verify WP Toolkit is installed and functional on cPanel server
+2. Check WP Toolkit API endpoint accessibility
+3. Ensure target domain resolves to cPanel server
+4. Verify sufficient disk space for WordPress installation
+5. Check database creation permissions
+
+#### 3. Account Management Issues (Suspend/Terminate/Password Change)
+**Symptoms**: Operations fail with API errors
+
+**Debug Steps**:
+1. Verify account exists on cPanel server
+2. Check WHM API permissions for account management
+3. Ensure account is not protected from suspension/termination
+4. Verify username format matches cPanel standards
+
+#### 4. Usage Statistics Not Updating
+**Symptoms**: Disk/bandwidth usage shows as 0 or doesn't update
+
+**Debug Steps**:
+1. Verify 'accountsummary' API function is accessible
+2. Check account exists and is active on cPanel server
+3. Ensure account has usage data to report
+
+### Error Logging
+
+All production errors are logged to WHMCS Activity Log with detailed information:
+
+- **API Request Details**: Function called, parameters sent
+- **API Response Details**: HTTP status, error messages
+- **Connection Issues**: Network, SSL, authentication problems
+- **Data Validation**: Missing or invalid parameters
+
+### Debug Mode
+
+Enable debug mode for detailed troubleshooting:
+1. Go to server configuration in WHMCS
+2. Set "Debug Mode" to "Yes"
+3. Reproduce the issue
+4. Check Activity Log for detailed debug information
+5. **Important**: Disable debug mode in production after troubleshooting
 
 ## Troubleshooting
 

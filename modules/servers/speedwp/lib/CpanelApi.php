@@ -67,6 +67,9 @@ class SpeedWP_CpanelApi
         if (!$this->password) {
             throw new Exception('Password or API token is required');
         }
+        
+        // Log initialization in debug mode
+        $this->logDebug("SpeedWP CpanelApi initialized for {$this->host}:{$this->port} with user {$this->username}");
     }
 
     /**
@@ -79,22 +82,24 @@ class SpeedWP_CpanelApi
         try {
             $this->logDebug("Testing connection to WHM server: {$this->host}:{$this->port}");
             
+            // Log the connection attempt with sanitized details
+            $this->logDebug("Connecting to WHM API with username: {$this->username}");
+            
             $result = $this->executeWhmApi('version');
             
             if (isset($result['version'])) {
+                $this->logDebug("Connection successful - Server version: {$result['version']}");
                 return [
                     'success' => true,
                     'server_info' => $result['version'] . ' on ' . $this->host
                 ];
             }
             
-            // Mock successful connection for demo
-            return [
-                'success' => true,
-                'server_info' => 'cPanel & WHM v102.0.18 on ' . $this->host . ' (Demo Mode)'
-            ];
+            // If we get here, the API call succeeded but didn't return expected data
+            throw new Exception('WHM API returned unexpected response format');
             
         } catch (Exception $e) {
+            $this->logError("Connection test failed: " . $e->getMessage());
             return [
                 'success' => false,
                 'message' => $e->getMessage()
@@ -157,7 +162,10 @@ class SpeedWP_CpanelApi
                 'maxaddon' => $accountDetails['maxaddon'] ?? 'unlimited'
             ];
             
+            $this->logDebug("Account parameters: plan={$params['plan']}, quota={$params['quota']}, email={$email}");
+            
             $result = $this->executeWhmApi('createacct', $params);
+            $this->logDebug("WHM createacct API response received");
             
             if (isset($result['result'][0]['status']) && $result['result'][0]['status'] == 1) {
                 $this->logDebug("cPanel account created successfully: {$username}");
@@ -169,21 +177,12 @@ class SpeedWP_CpanelApi
                 ];
             } else {
                 $errorMsg = $result['result'][0]['statusmsg'] ?? 'Unknown error occurred';
+                $this->logError("WHM createacct failed: " . $errorMsg);
                 throw new Exception("Account creation failed: " . $errorMsg);
             }
             
         } catch (Exception $e) {
-            $this->logError("Account creation failed: " . $e->getMessage());
-            
-            // For demo purposes, return success with mock data
-            if (strpos($e->getMessage(), 'Connection') !== false || strpos($e->getMessage(), 'cURL') !== false) {
-                return [
-                    'success' => true,
-                    'message' => 'Account created successfully (Demo Mode)',
-                    'username' => $accountDetails['user'],
-                    'domain' => $accountDetails['domain']
-                ];
-            }
+            $this->logError("Account creation failed for {$accountDetails['user']}@{$accountDetails['domain']}: " . $e->getMessage());
             
             return [
                 'success' => false,
@@ -281,22 +280,11 @@ class SpeedWP_CpanelApi
             }
             
         } catch (Exception $e) {
-            $this->logError("WordPress installation failed: " . $e->getMessage());
-            
-            // For demo purposes, return success with mock data
-            $adminPassword = $wpDetails['admin_pass'] ?? $this->generatePassword(12);
-            $adminUser = preg_replace('/[^a-zA-Z0-9_]/', '', trim($wpDetails['admin_user'] ?? 'admin'));
-            $domain = $wpDetails['domain'] ?? 'example.com';
+            $this->logError("WordPress installation failed for {$wpDetails['domain']}: " . $e->getMessage());
             
             return [
-                'success' => true,
-                'admin_url' => 'https://' . $domain . '/wp-admin/',
-                'site_url' => 'https://' . $domain . '/',
-                'admin_user' => $adminUser,
-                'admin_pass' => $adminPassword,
-                'wp_version' => $wpDetails['version'] ?? 'latest',
-                'demo_mode' => true,
-                'message' => 'WordPress installation simulated (Demo Mode)'
+                'success' => false,
+                'message' => $e->getMessage()
             ];
         }
     }
@@ -332,28 +320,11 @@ class SpeedWP_CpanelApi
             throw new Exception("Failed to fetch WordPress details");
             
         } catch (Exception $e) {
-            $this->logError("Error fetching WordPress details: " . $e->getMessage());
+            $this->logError("Error fetching WordPress details for {$domain}: " . $e->getMessage());
             
-            // Return demo data for demonstration
             return [
-                'success' => true,
-                'domain' => $domain,
-                'wp_version' => '6.4.1',
-                'admin_url' => 'https://' . $domain . '/wp-admin/',
-                'plugins' => [
-                    ['name' => 'Contact Form 7', 'version' => '5.8.2', 'active' => true, 'update_available' => false],
-                    ['name' => 'Yoast SEO', 'version' => '21.5', 'active' => true, 'update_available' => true],
-                    ['name' => 'WooCommerce', 'version' => '8.2.1', 'active' => false, 'update_available' => false]
-                ],
-                'themes' => [
-                    ['name' => 'Twenty Twenty-Four', 'version' => '1.0', 'active' => true, 'update_available' => false],
-                    ['name' => 'Astra', 'version' => '4.4.1', 'active' => false, 'update_available' => true]
-                ],
-                'updates_available' => 2,
-                'last_backup' => date('Y-m-d H:i:s', strtotime('-2 days')),
-                'ssl_enabled' => true,
-                'auto_updates' => true,
-                'demo_mode' => true
+                'success' => false,
+                'message' => $e->getMessage()
             ];
         }
     }
@@ -385,12 +356,11 @@ class SpeedWP_CpanelApi
             }
             
         } catch (Exception $e) {
-            $this->logError("Account suspension failed: " . $e->getMessage());
+            $this->logError("Account suspension failed for {$username}: " . $e->getMessage());
             
-            // Demo mode fallback
             return [
-                'success' => true,
-                'message' => 'Account suspended successfully (Demo Mode)'
+                'success' => false,
+                'message' => $e->getMessage()
             ];
         }
     }
@@ -416,12 +386,11 @@ class SpeedWP_CpanelApi
             }
             
         } catch (Exception $e) {
-            $this->logError("Account unsuspension failed: " . $e->getMessage());
+            $this->logError("Account unsuspension failed for {$username}: " . $e->getMessage());
             
-            // Demo mode fallback
             return [
-                'success' => true,
-                'message' => 'Account unsuspended successfully (Demo Mode)'
+                'success' => false,
+                'message' => $e->getMessage()
             ];
         }
     }
@@ -447,12 +416,11 @@ class SpeedWP_CpanelApi
             }
             
         } catch (Exception $e) {
-            $this->logError("Account termination failed: " . $e->getMessage());
+            $this->logError("Account termination failed for {$username}: " . $e->getMessage());
             
-            // Demo mode fallback
             return [
-                'success' => true,
-                'message' => 'Account terminated successfully (Demo Mode)'
+                'success' => false,
+                'message' => $e->getMessage()
             ];
         }
     }
@@ -484,12 +452,11 @@ class SpeedWP_CpanelApi
             }
             
         } catch (Exception $e) {
-            $this->logError("Password change failed: " . $e->getMessage());
+            $this->logError("Password change failed for {$username}: " . $e->getMessage());
             
-            // Demo mode fallback
             return [
-                'success' => true,
-                'message' => 'Password changed successfully (Demo Mode)'
+                'success' => false,
+                'message' => $e->getMessage()
             ];
         }
     }
@@ -521,15 +488,11 @@ class SpeedWP_CpanelApi
             throw new Exception("Account not found");
             
         } catch (Exception $e) {
-            $this->logError("Usage fetch failed: " . $e->getMessage());
+            $this->logError("Usage fetch failed for {$username}: " . $e->getMessage());
             
-            // Demo mode fallback
             return [
-                'success' => true,
-                'disk_used' => rand(100, 1000),
-                'disk_limit' => 5000,
-                'bandwidth_used' => rand(1000, 10000),
-                'bandwidth_limit' => 50000
+                'success' => false,
+                'message' => $e->getMessage()
             ];
         }
     }
@@ -543,11 +506,23 @@ class SpeedWP_CpanelApi
     public function suspendWordPressSite($domain)
     {
         try {
+            $this->logDebug("Suspending WordPress site: {$domain}");
+            
             $result = $this->executeWpToolkitApi('suspend', ['domain' => $domain]);
-            return $result ?: ['success' => true, 'message' => 'WordPress site suspended (Demo Mode)'];
+            
+            if ($result['success']) {
+                return ['success' => true, 'message' => 'WordPress site suspended successfully'];
+            } else {
+                throw new Exception($result['message'] ?? 'WordPress suspension failed');
+            }
             
         } catch (Exception $e) {
-            return ['success' => true, 'message' => 'WordPress site suspended (Demo Mode)'];
+            $this->logError("WordPress site suspension failed for {$domain}: " . $e->getMessage());
+            
+            return [
+                'success' => false,
+                'message' => $e->getMessage()
+            ];
         }
     }
 
@@ -560,11 +535,23 @@ class SpeedWP_CpanelApi
     public function unsuspendWordPressSite($domain)
     {
         try {
+            $this->logDebug("Unsuspending WordPress site: {$domain}");
+            
             $result = $this->executeWpToolkitApi('unsuspend', ['domain' => $domain]);
-            return $result ?: ['success' => true, 'message' => 'WordPress site unsuspended (Demo Mode)'];
+            
+            if ($result['success']) {
+                return ['success' => true, 'message' => 'WordPress site unsuspended successfully'];
+            } else {
+                throw new Exception($result['message'] ?? 'WordPress unsuspension failed');
+            }
             
         } catch (Exception $e) {
-            return ['success' => true, 'message' => 'WordPress site unsuspended (Demo Mode)'];
+            $this->logError("WordPress site unsuspension failed for {$domain}: " . $e->getMessage());
+            
+            return [
+                'success' => false,
+                'message' => $e->getMessage()
+            ];
         }
     }
 
@@ -586,16 +573,19 @@ class SpeedWP_CpanelApi
                 'backup_name' => $backupName
             ]);
             
-            return [
-                'success' => true,
-                'backup_name' => $backupName,
-                'backup_size' => '156 MB',
-                'created_at' => date('Y-m-d H:i:s'),
-                'demo_mode' => true
-            ];
+            if ($result['success']) {
+                return [
+                    'success' => true,
+                    'backup_name' => $result['backup_name'] ?? $backupName,
+                    'backup_size' => $result['backup_size'] ?? 'Unknown',
+                    'created_at' => $result['created_at'] ?? date('Y-m-d H:i:s')
+                ];
+            } else {
+                throw new Exception($result['message'] ?? 'WordPress backup creation failed');
+            }
             
         } catch (Exception $e) {
-            $this->logError("WordPress backup failed: " . $e->getMessage());
+            $this->logError("WordPress backup failed for {$domain}: " . $e->getMessage());
             
             return [
                 'success' => false,
@@ -621,15 +611,18 @@ class SpeedWP_CpanelApi
                 'admin_password' => $newPassword
             ]);
             
-            return [
-                'success' => true,
-                'message' => 'WordPress password reset successfully',
-                'new_password' => $newPassword,
-                'demo_mode' => true
-            ];
+            if ($result['success']) {
+                return [
+                    'success' => true,
+                    'message' => 'WordPress password reset successfully',
+                    'new_password' => $newPassword
+                ];
+            } else {
+                throw new Exception($result['message'] ?? 'WordPress password reset failed');
+            }
             
         } catch (Exception $e) {
-            $this->logError("WordPress password reset failed: " . $e->getMessage());
+            $this->logError("WordPress password reset failed for {$domain}: " . $e->getMessage());
             
             return [
                 'success' => false,
@@ -656,15 +649,19 @@ class SpeedWP_CpanelApi
                 'dest' => '/backup/' . $backupName
             ]);
             
-            return [
-                'success' => true,
-                'backup_name' => $backupName,
-                'backup_path' => '/backup/' . $backupName,
-                'demo_mode' => true
-            ];
+            if (isset($result['result'][0]['status']) && $result['result'][0]['status'] == 1) {
+                return [
+                    'success' => true,
+                    'backup_name' => $backupName,
+                    'backup_path' => '/backup/' . $backupName
+                ];
+            } else {
+                $errorMsg = $result['result'][0]['statusmsg'] ?? 'Unknown error occurred';
+                throw new Exception("Final backup failed: " . $errorMsg);
+            }
             
         } catch (Exception $e) {
-            $this->logError("Final backup failed: " . $e->getMessage());
+            $this->logError("Final backup failed for {$username}: " . $e->getMessage());
             
             return [
                 'success' => false,
@@ -684,11 +681,18 @@ class SpeedWP_CpanelApi
         try {
             $this->logDebug("Enabling SSL for WordPress site: {$domain}");
             
-            // This would normally call Let's Encrypt or other SSL API
-            return ['success' => true, 'message' => 'SSL enabled (Demo Mode)'];
+            // Call SSL API (Let's Encrypt or other SSL provider)
+            $result = $this->executeWhmApi('start_autossl_check', ['domain' => $domain]);
+            
+            if (isset($result['result'][0]['status']) && $result['result'][0]['status'] == 1) {
+                return ['success' => true, 'message' => 'SSL enabled successfully'];
+            } else {
+                $errorMsg = $result['result'][0]['statusmsg'] ?? 'SSL enablement failed';
+                throw new Exception($errorMsg);
+            }
             
         } catch (Exception $e) {
-            $this->logError("SSL enablement failed: " . $e->getMessage());
+            $this->logError("SSL enablement failed for {$domain}: " . $e->getMessage());
             return ['success' => false, 'message' => $e->getMessage()];
         }
     }
@@ -711,10 +715,14 @@ class SpeedWP_CpanelApi
                 'retention' => 30 // days
             ]);
             
-            return ['success' => true, 'message' => 'Backups configured (Demo Mode)'];
+            if ($result['success']) {
+                return ['success' => true, 'message' => 'Backups configured successfully'];
+            } else {
+                throw new Exception($result['message'] ?? 'Backup setup failed');
+            }
             
         } catch (Exception $e) {
-            $this->logError("Backup setup failed: " . $e->getMessage());
+            $this->logError("Backup setup failed for {$domain}: " . $e->getMessage());
             return ['success' => false, 'message' => $e->getMessage()];
         }
     }
@@ -735,6 +743,7 @@ class SpeedWP_CpanelApi
             }
             
             $url = "https://{$this->host}:{$this->port}/json-api/{$function}";
+            $this->logDebug("WHM API Request: {$function} to {$url}");
             
             // Sanitize parameters
             $sanitizedParams = [];
@@ -744,6 +753,16 @@ class SpeedWP_CpanelApi
                     $sanitizedParams[$key] = is_string($value) ? trim($value) : $value;
                 }
             }
+            
+            // Log parameters (without sensitive data)
+            $logParams = $sanitizedParams;
+            if (isset($logParams['password'])) {
+                $logParams['password'] = '[REDACTED]';
+            }
+            if (isset($logParams['pass'])) {
+                $logParams['pass'] = '[REDACTED]';
+            }
+            $this->logDebug("WHM API Parameters: " . json_encode($logParams));
             
             $postData = http_build_query($sanitizedParams);
             
@@ -768,6 +787,8 @@ class SpeedWP_CpanelApi
             $error = curl_error($ch);
             curl_close($ch);
             
+            $this->logDebug("WHM API Response: HTTP {$httpCode}");
+            
             if ($error) {
                 throw new Exception("cURL error: " . $error);
             }
@@ -784,6 +805,14 @@ class SpeedWP_CpanelApi
             
             if (json_last_error() !== JSON_ERROR_NONE) {
                 throw new Exception("Invalid JSON response: " . json_last_error_msg());
+            }
+            
+            // Log response status (without sensitive data)
+            if (isset($result['result'][0]['status'])) {
+                $this->logDebug("WHM API Result Status: " . $result['result'][0]['status']);
+                if (isset($result['result'][0]['statusmsg'])) {
+                    $this->logDebug("WHM API Status Message: " . $result['result'][0]['statusmsg']);
+                }
             }
             
             return $result;
@@ -813,6 +842,7 @@ class SpeedWP_CpanelApi
             
             // WP Toolkit API endpoint
             $url = "https://{$this->host}:{$this->port}/wp-toolkit/api/{$action}";
+            $this->logDebug("WP Toolkit API Request: {$action} to {$url}");
             
             // Sanitize parameters
             $sanitizedParams = [];
@@ -822,6 +852,13 @@ class SpeedWP_CpanelApi
                     $sanitizedParams[$key] = is_string($value) ? trim($value) : $value;
                 }
             }
+            
+            // Log parameters (without sensitive data)
+            $logParams = $sanitizedParams;
+            if (isset($logParams['admin_password'])) {
+                $logParams['admin_password'] = '[REDACTED]';
+            }
+            $this->logDebug("WP Toolkit API Parameters: " . json_encode($logParams));
             
             $ch = curl_init();
             curl_setopt($ch, CURLOPT_URL, $url);
@@ -845,6 +882,8 @@ class SpeedWP_CpanelApi
             $error = curl_error($ch);
             curl_close($ch);
             
+            $this->logDebug("WP Toolkit API Response: HTTP {$httpCode}");
+            
             if ($error) {
                 throw new Exception("WP Toolkit API cURL error: " . $error);
             }
@@ -863,18 +902,19 @@ class SpeedWP_CpanelApi
                 throw new Exception("Invalid JSON response from WP Toolkit API: " . json_last_error_msg());
             }
             
+            // Log response status (without sensitive data)
+            if (isset($result['success'])) {
+                $this->logDebug("WP Toolkit API Result Success: " . ($result['success'] ? 'true' : 'false'));
+                if (isset($result['message'])) {
+                    $this->logDebug("WP Toolkit API Message: " . $result['message']);
+                }
+            }
+            
             return $result;
             
         } catch (Exception $e) {
             $this->logError("WP Toolkit API call failed ({$action}): " . $e->getMessage());
-            
-            // Return mock success for demo purposes
-            return [
-                'success' => true,
-                'message' => 'Operation completed (Demo Mode)',
-                'action' => $action,
-                'params' => $params
-            ];
+            throw $e;
         }
     }
 

@@ -74,14 +74,6 @@ function speedwp_ConfigOptions()
             'Description' => 'cPanel package/plan name to use for new accounts (must exist on server)'
         ],
         
-        // cPanel package configuration
-        'Package Name' => [
-            'Type' => 'text',
-            'Size' => '20',
-            'Default' => 'default',
-            'Description' => 'cPanel package/plan name to use for new accounts (must exist on server)'
-        ],
-        
         // WordPress/WP Toolkit settings
         'Auto-Install WordPress' => [
             'Type' => 'yesno',
@@ -117,6 +109,13 @@ function speedwp_ConfigOptions()
             'Options' => 'daily,weekly,monthly',
             'Default' => 'weekly',
             'Description' => 'Automatic backup frequency'
+        ],
+        
+        // Debug settings
+        'Debug Mode' => [
+            'Type' => 'yesno',
+            'Default' => '',
+            'Description' => 'Enable detailed debug logging for troubleshooting (disable in production)'
         ]
     ];
 }
@@ -170,7 +169,8 @@ function speedwp_CreateAccount($params)
             'host' => $params['serverhostname'] ?: $params['configoption1'],
             'port' => intval($params['configoption2'] ?: 2087),
             'username' => $params['serverusername'] ?: $params['configoption3'],
-            'password' => $params['serverpassword'] ?: $params['configoption4']
+            'password' => $params['serverpassword'] ?: $params['configoption4'],
+            'debug' => $params['configoption12'] === 'on' // Debug Mode is now option 12
         ]);
         
         // Prepare account details
@@ -275,7 +275,8 @@ function speedwp_SuspendAccount($params)
             'host' => $params['serverhostname'] ?: $params['configoption1'],
             'port' => intval($params['configoption2'] ?: 2087),
             'username' => $params['serverusername'] ?: $params['configoption3'],
-            'password' => $params['serverpassword'] ?: $params['configoption4']
+            'password' => $params['serverpassword'] ?: $params['configoption4'],
+            'debug' => $params['configoption12'] === 'on'
         ]);
         
         $result = $cpanel->suspendAccount($username, 'Suspended via WHMCS');
@@ -328,7 +329,8 @@ function speedwp_UnsuspendAccount($params)
             'host' => $params['serverhostname'] ?: $params['configoption1'],
             'port' => intval($params['configoption2'] ?: 2087),
             'username' => $params['serverusername'] ?: $params['configoption3'],
-            'password' => $params['serverpassword'] ?: $params['configoption4']
+            'password' => $params['serverpassword'] ?: $params['configoption4'],
+            'debug' => $params['configoption12'] === 'on'
         ]);
         
         $result = $cpanel->unsuspendAccount($username);
@@ -381,7 +383,8 @@ function speedwp_TerminateAccount($params)
             'host' => $params['serverhostname'] ?: $params['configoption1'],
             'port' => intval($params['configoption2'] ?: 2087),
             'username' => $params['serverusername'] ?: $params['configoption3'],
-            'password' => $params['serverpassword'] ?: $params['configoption4']
+            'password' => $params['serverpassword'] ?: $params['configoption4'],
+            'debug' => $params['configoption12'] === 'on'
         ]);
         
         // Create final backup before termination if enabled
@@ -445,7 +448,8 @@ function speedwp_ChangePassword($params)
             'host' => $params['serverhostname'] ?: $params['configoption1'],
             'port' => intval($params['configoption2'] ?: 2087),
             'username' => $params['serverusername'] ?: $params['configoption3'],
-            'password' => $params['serverpassword'] ?: $params['configoption4']
+            'password' => $params['serverpassword'] ?: $params['configoption4'],
+            'debug' => $params['configoption12'] === 'on'
         ]);
         
         $result = $cpanel->changeAccountPassword($username, $params['password']);
@@ -562,7 +566,8 @@ function speedwp_resetWordPressPassword($params)
             'host' => $params['serverhostname'] ?: $params['configoption1'],
             'port' => intval($params['configoption2'] ?: 2087),
             'username' => $params['serverusername'] ?: $params['configoption3'],
-            'password' => $params['serverpassword'] ?: $params['configoption4']
+            'password' => $params['serverpassword'] ?: $params['configoption4'],
+            'debug' => $params['configoption12'] === 'on'
         ]);
         
         $newPassword = speedwp_generatePassword(12);
@@ -610,7 +615,8 @@ function speedwp_createBackup($params)
             'host' => $params['serverhostname'] ?: $params['configoption1'],
             'port' => intval($params['configoption2'] ?: 2087),
             'username' => $params['serverusername'] ?: $params['configoption3'],
-            'password' => $params['serverpassword'] ?: $params['configoption4']
+            'password' => $params['serverpassword'] ?: $params['configoption4'],
+            'debug' => $params['configoption12'] === 'on'
         ]);
         
         $result = $cpanel->createWordPressBackup($domain);
@@ -689,7 +695,8 @@ function speedwp_TestConnection($params)
             'host' => $host,
             'port' => $port,
             'username' => $username,
-            'password' => $password
+            'password' => $password,
+            'debug' => $params['configoption12'] === 'on'
         ]);
         
         $result = $cpanel->testConnection();
@@ -740,7 +747,8 @@ function speedwp_UsageUpdate($params)
             'host' => $params['serverhostname'] ?: $params['configoption1'],
             'port' => intval($params['configoption2'] ?: 2087),
             'username' => $params['serverusername'] ?: $params['configoption3'],
-            'password' => $params['serverpassword'] ?: $params['configoption4']
+            'password' => $params['serverpassword'] ?: $params['configoption4'],
+            'debug' => $params['configoption12'] === 'on'
         ]);
         
         $usage = $cpanel->getAccountUsage($username);
