@@ -146,6 +146,9 @@
                                 <a href="{$hosting_details.webmail_url}" target="_blank" class="btn btn-info btn-sm">
                                     <i class="fa fa-envelope"></i> Webmail
                                 </a>
+                                <button type="button" class="btn btn-success btn-sm" onclick="showFtpDetails()">
+                                    <i class="fa fa-folder"></i> FTP Details
+                                </button>
                                 <button type="button" class="btn btn-default btn-sm" onclick="refreshHostingDetails()">
                                     <i class="fa fa-refresh"></i> Refresh Usage
                                 </button>
@@ -191,9 +194,14 @@
                                 <tr>
                                     <th>Admin Area:</th>
                                     <td>
-                                        <a href="{$wp_details.admin_url}" target="_blank" class="btn btn-xs btn-primary">
-                                            <i class="fa fa-sign-in"></i> Login to WordPress
-                                        </a>
+                                        <div class="btn-group">
+                                            <button type="button" class="btn btn-xs btn-primary" onclick="autoLoginWordPress()">
+                                                <i class="fa fa-sign-in"></i> Auto-Login to WordPress
+                                            </button>
+                                            <a href="{$wp_details.admin_url}" target="_blank" class="btn btn-xs btn-default">
+                                                <i class="fa fa-external-link"></i> Manual Login
+                                            </a>
+                                        </div>
                                     </td>
                                 </tr>
                                 <tr>
@@ -248,6 +256,18 @@
                                     <i class="fa fa-refresh"></i> Update WordPress ({$wp_details.updates_available} available)
                                 </button>
                                 {/if}
+                                <div class="btn-group" style="width: 100%; margin-top: 5px;">
+                                    <button type="button" class="btn btn-default dropdown-toggle" data-toggle="dropdown" style="width: 100%;">
+                                        <i class="fa fa-wrench"></i> More Actions <span class="caret"></span>
+                                    </button>
+                                    <ul class="dropdown-menu" style="width: 100%;">
+                                        <li><a href="#" onclick="managePlugins(); return false;"><i class="fa fa-plug"></i> Manage Plugins</a></li>
+                                        <li><a href="#" onclick="manageThemes(); return false;"><i class="fa fa-paint-brush"></i> Manage Themes</a></li>
+                                        <li><a href="#" onclick="viewBackupList(); return false;"><i class="fa fa-download"></i> Download Backups</a></li>
+                                        <li class="divider"></li>
+                                        <li><a href="#" onclick="showFtpDetails(); return false;"><i class="fa fa-folder"></i> FTP Access</a></li>
+                                    </ul>
+                                </div>
                             </div>
                             
                             {if $wp_details.updates_available > 0}
@@ -280,6 +300,7 @@
                                                 <th>Plugin Name</th>
                                                 <th>Status</th>
                                                 <th>Update</th>
+                                                <th>Actions</th>
                                             </tr>
                                         </thead>
                                         <tbody>
@@ -297,6 +318,24 @@
                                                     {else}
                                                         <span class="text-muted">—</span>
                                                     {/if}
+                                                </td>
+                                                <td>
+                                                    <div class="btn-group btn-group-xs">
+                                                        {if $plugin.active}
+                                                            <button type="button" class="btn btn-warning btn-xs" onclick="togglePlugin('{$plugin.name}', 'deactivate')" title="Deactivate">
+                                                                <i class="fa fa-pause"></i>
+                                                            </button>
+                                                        {else}
+                                                            <button type="button" class="btn btn-success btn-xs" onclick="togglePlugin('{$plugin.name}', 'activate')" title="Activate">
+                                                                <i class="fa fa-play"></i>
+                                                            </button>
+                                                        {/if}
+                                                        {if $plugin.update_available}
+                                                            <button type="button" class="btn btn-info btn-xs" onclick="updatePlugin('{$plugin.name}')" title="Update">
+                                                                <i class="fa fa-refresh"></i>
+                                                            </button>
+                                                        {/if}
+                                                    </div>
                                                 </td>
                                             </tr>
                                             {/foreach}
@@ -318,6 +357,7 @@
                                                 <th>Theme Name</th>
                                                 <th>Status</th>
                                                 <th>Update</th>
+                                                <th>Actions</th>
                                             </tr>
                                         </thead>
                                         <tbody>
@@ -335,6 +375,20 @@
                                                     {else}
                                                         <span class="text-muted">—</span>
                                                     {/if}
+                                                </td>
+                                                <td>
+                                                    <div class="btn-group btn-group-xs">
+                                                        {if !$theme.active}
+                                                            <button type="button" class="btn btn-primary btn-xs" onclick="activateTheme('{$theme.name}')" title="Activate">
+                                                                <i class="fa fa-check"></i>
+                                                            </button>
+                                                        {/if}
+                                                        {if $theme.update_available}
+                                                            <button type="button" class="btn btn-info btn-xs" onclick="updateTheme('{$theme.name}')" title="Update">
+                                                                <i class="fa fa-refresh"></i>
+                                                            </button>
+                                                        {/if}
+                                                    </div>
                                                 </td>
                                             </tr>
                                             {/foreach}
@@ -426,12 +480,23 @@ function createWordPressBackup() {
         btn.innerHTML = '<i class="fa fa-spinner fa-spin"></i> Creating Backup...';
         btn.disabled = true;
         
-        // Simulate backup creation
-        setTimeout(function() {
+        // AJAX call to create backup
+        $.post(window.location.href, {
+            action: 'create_backup'
+        }, function(response) {
             btn.innerHTML = originalText;
             btn.disabled = false;
-            alert('WordPress backup created successfully!\n\nBackup Name: wp_backup_' + new Date().toISOString().slice(0,19).replace(/:/g, '-') + '.tar.gz\nSize: ~156 MB\n\n(Demo Mode)');
-        }, 3000);
+            
+            if (response.success) {
+                alert('WordPress backup created successfully!\n\nBackup Name: ' + response.backup_name + '\nSize: ' + (response.backup_size || 'Calculating...') + '\n\n' + (response.demo_mode ? '(Demo Mode)' : ''));
+            } else {
+                alert('Backup creation failed: ' + response.message);
+            }
+        }).fail(function() {
+            btn.innerHTML = originalText;
+            btn.disabled = false;
+            alert('Network error - please try again later.');
+        });
     }
 }
 
@@ -442,13 +507,52 @@ function resetWordPressPassword() {
         btn.innerHTML = '<i class="fa fa-spinner fa-spin"></i> Resetting...';
         btn.disabled = true;
         
-        setTimeout(function() {
+        // AJAX call to reset password
+        $.post(window.location.href, {
+            action: 'reset_wp_password'
+        }, function(response) {
             btn.innerHTML = originalText;
             btn.disabled = false;
-            var newPassword = 'WP' + Math.floor(Math.random() * 100000);
-            alert('WordPress admin password has been reset!\n\nNew Password: ' + newPassword + '\n\nPlease save this password securely and log in to change it to something memorable.\n\n(Demo Mode)');
-        }, 2000);
+            
+            if (response.success) {
+                alert('WordPress admin password has been reset!\n\nNew Password: ' + response.new_password + '\n\nPlease save this password securely and log in to change it to something memorable.');
+            } else {
+                alert('Password reset failed: ' + response.message);
+            }
+        }).fail(function() {
+            btn.innerHTML = originalText;
+            btn.disabled = false;
+            alert('Network error - please try again later.');
+        });
     }
+}
+
+function autoLoginWordPress() {
+    var btn = event.target;
+    var originalText = btn.innerHTML;
+    btn.innerHTML = '<i class="fa fa-spinner fa-spin"></i> Generating...';
+    btn.disabled = true;
+    
+    // AJAX call to get auto-login URL
+    $.post(window.location.href, {
+        action: 'get_auto_login'
+    }, function(response) {
+        btn.innerHTML = originalText;
+        btn.disabled = false;
+        
+        if (response.success) {
+            if (response.demo_mode) {
+                alert('Auto-login feature is not available in demo mode. Opening regular WordPress admin login page instead.');
+            }
+            window.open(response.login_url, '_blank');
+        } else {
+            alert('Auto-login generation failed: ' + response.message);
+        }
+    }).fail(function() {
+        btn.innerHTML = originalText;
+        btn.disabled = false;
+        alert('Network error - please try again later.');
+    });
 }
 
 function refreshWordPressDetails() {
@@ -457,12 +561,24 @@ function refreshWordPressDetails() {
     btn.innerHTML = '<i class="fa fa-spinner fa-spin"></i> Refreshing...';
     btn.disabled = true;
     
-    setTimeout(function() {
+    // AJAX call to refresh details
+    $.post(window.location.href, {
+        action: 'refresh_wp_details'
+    }, function(response) {
         btn.innerHTML = originalText;
         btn.disabled = false;
-        alert('WordPress details refreshed successfully! (Demo Mode)');
-        location.reload();
-    }, 2000);
+        
+        if (response.success) {
+            alert('WordPress details refreshed successfully!');
+            location.reload();
+        } else {
+            alert('Refresh failed: ' + response.message);
+        }
+    }).fail(function() {
+        btn.innerHTML = originalText;
+        btn.disabled = false;
+        alert('Network error - please try again later.');
+    });
 }
 
 function updateWordPress() {
@@ -472,31 +588,236 @@ function updateWordPress() {
         btn.innerHTML = '<i class="fa fa-spinner fa-spin"></i> Updating...';
         btn.disabled = true;
         
-        setTimeout(function() {
+        // AJAX call to update WordPress
+        $.post(window.location.href, {
+            action: 'update_wordpress'
+        }, function(response) {
             btn.innerHTML = originalText;
             btn.disabled = false;
-            alert('WordPress has been updated successfully!\n\n• WordPress core updated to latest version\n• 2 plugins updated\n• 1 theme updated\n• Automatic backup created\n\n(Demo Mode)');
-            location.reload();
-        }, 5000);
+            
+            if (response.success) {
+                alert('WordPress update initiated successfully!\n\nEstimated time: ' + (response.estimated_time || '5-10 minutes') + '\n\nThe page will refresh automatically.');
+                setTimeout(function() { location.reload(); }, 3000);
+            } else {
+                alert('WordPress update failed: ' + response.message);
+            }
+        }).fail(function() {
+            btn.innerHTML = originalText;
+            btn.disabled = false;
+            alert('Network error - please try again later.');
+        });
     }
 }
 
 function toggleAutoUpdates(enabled) {
-    var status = enabled ? 'enabled' : 'disabled';
-    
-    // Show loading state
     var toggle = document.getElementById('auto-updates-toggle');
     toggle.disabled = true;
     
-    setTimeout(function() {
+    // AJAX call to toggle auto-updates
+    $.post(window.location.href, {
+        action: 'toggle_auto_updates',
+        enabled: enabled ? 'true' : 'false'
+    }, function(response) {
         toggle.disabled = false;
-        alert('WordPress auto-updates have been ' + status + ' successfully! (Demo Mode)');
-    }, 1000);
+        
+        if (response.success) {
+            alert('WordPress auto-updates have been ' + (enabled ? 'enabled' : 'disabled') + ' successfully!');
+        } else {
+            // Revert checkbox on failure
+            toggle.checked = !enabled;
+            alert('Auto-updates toggle failed: ' + response.message);
+        }
+    }).fail(function() {
+        toggle.disabled = false;
+        toggle.checked = !enabled;
+        alert('Network error - please try again later.');
+    });
+}
+
+// Plugin Management Functions
+function togglePlugin(pluginName, action) {
+    if (confirm(action.charAt(0).toUpperCase() + action.slice(1) + ' plugin "' + pluginName + '"?')) {
+        var btn = event.target;
+        var originalHtml = btn.innerHTML;
+        btn.innerHTML = '<i class="fa fa-spinner fa-spin"></i>';
+        btn.disabled = true;
+        
+        $.post(window.location.href, {
+            action: 'manage_plugins',
+            plugin_action: action,
+            plugin_name: pluginName
+        }, function(response) {
+            btn.innerHTML = originalHtml;
+            btn.disabled = false;
+            
+            if (response.success) {
+                alert('Plugin ' + action + ' completed successfully!');
+                location.reload();
+            } else {
+                alert('Plugin action failed: ' + response.message);
+            }
+        }).fail(function() {
+            btn.innerHTML = originalHtml;
+            btn.disabled = false;
+            alert('Network error - please try again later.');
+        });
+    }
+}
+
+function updatePlugin(pluginName) {
+    if (confirm('Update plugin "' + pluginName + '"? A backup will be created before the update.')) {
+        var btn = event.target;
+        var originalHtml = btn.innerHTML;
+        btn.innerHTML = '<i class="fa fa-spinner fa-spin"></i>';
+        btn.disabled = true;
+        
+        $.post(window.location.href, {
+            action: 'manage_plugins',
+            plugin_action: 'update',
+            plugin_name: pluginName
+        }, function(response) {
+            btn.innerHTML = originalHtml;
+            btn.disabled = false;
+            
+            if (response.success) {
+                alert('Plugin updated successfully!');
+                location.reload();
+            } else {
+                alert('Plugin update failed: ' + response.message);
+            }
+        }).fail(function() {
+            btn.innerHTML = originalHtml;
+            btn.disabled = false;
+            alert('Network error - please try again later.');
+        });
+    }
+}
+
+// Theme Management Functions
+function activateTheme(themeName) {
+    if (confirm('Activate theme "' + themeName + '"? This will deactivate the current theme.')) {
+        var btn = event.target;
+        var originalHtml = btn.innerHTML;
+        btn.innerHTML = '<i class="fa fa-spinner fa-spin"></i>';
+        btn.disabled = true;
+        
+        $.post(window.location.href, {
+            action: 'manage_themes',
+            theme_action: 'activate',
+            theme_name: themeName
+        }, function(response) {
+            btn.innerHTML = originalHtml;
+            btn.disabled = false;
+            
+            if (response.success) {
+                alert('Theme activated successfully!');
+                location.reload();
+            } else {
+                alert('Theme activation failed: ' + response.message);
+            }
+        }).fail(function() {
+            btn.innerHTML = originalHtml;
+            btn.disabled = false;
+            alert('Network error - please try again later.');
+        });
+    }
+}
+
+function updateTheme(themeName) {
+    if (confirm('Update theme "' + themeName + '"? A backup will be created before the update.')) {
+        var btn = event.target;
+        var originalHtml = btn.innerHTML;
+        btn.innerHTML = '<i class="fa fa-spinner fa-spin"></i>';
+        btn.disabled = true;
+        
+        $.post(window.location.href, {
+            action: 'manage_themes',
+            theme_action: 'update',
+            theme_name: themeName
+        }, function(response) {
+            btn.innerHTML = originalHtml;
+            btn.disabled = false;
+            
+            if (response.success) {
+                alert('Theme updated successfully!');
+                location.reload();
+            } else {
+                alert('Theme update failed: ' + response.message);
+            }
+        }).fail(function() {
+            btn.innerHTML = originalHtml;
+            btn.disabled = false;
+            alert('Network error - please try again later.');
+        });
+    }
+}
+
+// FTP and Backup Functions
+function showFtpDetails() {
+    $.post(window.location.href, {
+        action: 'get_ftp_details'
+    }, function(response) {
+        if (response.success) {
+            var ftpInfo = response.ftp_details;
+            var message = 'FTP Connection Details:\\n\\n';
+            message += 'FTP Server: ' + ftpInfo.ftp_server + '\\n';
+            message += 'Port: ' + ftpInfo.ftp_port + ' (FTP) / ' + ftpInfo.sftp_port + ' (SFTP)\\n';
+            message += 'Username: ' + ftpInfo.ftp_username + '\\n';
+            message += 'Password: ' + ftpInfo.ftp_password + '\\n';
+            message += 'Directory: ' + ftpInfo.ftp_directory + '\\n';
+            message += 'Status: ' + ftpInfo.account_status + '\\n\\n';
+            message += 'You can use any FTP client (FileZilla, WinSCP, etc.) with these settings.';
+            
+            if (ftpInfo.demo_mode) {
+                message += '\\n\\n(Demo Mode - Use your actual cPanel password)';
+            }
+            
+            alert(message);
+        } else {
+            alert('Failed to retrieve FTP details: ' + response.message);
+        }
+    }).fail(function() {
+        alert('Network error - please try again later.');
+    });
+}
+
+function viewBackupList() {
+    // This would show a modal or page with available backups
+    var message = 'Available WordPress Backups:\\n\\n';
+    message += '• wp_backup_2024-01-15_10-30.tar.gz (156 MB)\\n';
+    message += '• wp_backup_2024-01-08_10-30.tar.gz (154 MB)\\n';
+    message += '• wp_backup_2024-01-01_10-30.tar.gz (152 MB)\\n\\n';
+    message += 'Click on any backup name to download it.\\n\\n(Demo Mode)';
+    
+    if (confirm(message + '\\n\\nWould you like to download the latest backup?')) {
+        $.post(window.location.href, {
+            action: 'download_backup',
+            backup_name: 'wp_backup_2024-01-15_10-30.tar.gz'
+        }, function(response) {
+            if (response.success) {
+                alert('Download link generated! The download will start automatically.\\n\\nExpires: ' + response.expires_in + '\\n\\n(Demo Mode)');
+                // In real implementation, this would trigger the download
+                // window.open(response.download_url, '_blank');
+            } else {
+                alert('Download failed: ' + response.message);
+            }
+        }).fail(function() {
+            alert('Network error - please try again later.');
+        });
+    }
+}
+
+function managePlugins() {
+    alert('Plugin management interface would open here.\\n\\nFeatures:\\n• Install new plugins\\n• Update all plugins\\n• Bulk activate/deactivate\\n• Plugin settings\\n\\n(Demo Mode)');
+}
+
+function manageThemes() {
+    alert('Theme management interface would open here.\\n\\nFeatures:\\n• Install new themes\\n• Theme customizer\\n• Update all themes\\n• Theme settings\\n\\n(Demo Mode)');
 }
 
 function installWordPress() {
     if (confirm('Install WordPress on your hosting account? This will create a new WordPress installation in the root directory.')) {
-        alert('WordPress installation initiated!\n\nThis process typically takes 2-3 minutes. You will receive an email with your WordPress admin credentials once installation is complete.\n\n(Demo Mode)');
+        alert('WordPress installation initiated!\\n\\nThis process typically takes 2-3 minutes. You will receive an email with your WordPress admin credentials once installation is complete.\\n\\n(Demo Mode)');
     }
 }
 
@@ -509,7 +830,7 @@ function scanForWordPress() {
     setTimeout(function() {
         btn.innerHTML = originalText;
         btn.disabled = false;
-        alert('Scan completed!\n\nFound 1 WordPress installation in the root directory. Refreshing page to display WordPress management options.\n\n(Demo Mode)');
+        alert('Scan completed!\\n\\nFound 1 WordPress installation in the root directory. Refreshing page to display WordPress management options.\\n\\n(Demo Mode)');
         location.reload();
     }, 3000);
 }

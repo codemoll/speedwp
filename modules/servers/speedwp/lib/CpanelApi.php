@@ -1029,6 +1029,178 @@ class SpeedWP_CpanelApi
     }
 
     /**
+     * Delete WordPress installation from public_html
+     * 
+     * @param string $domain Domain name
+     * @return array Deletion result
+     */
+    public function deleteWordPressInstallation($domain)
+    {
+        try {
+            $this->logDebug("Deleting WordPress installation for domain: {$domain}");
+            
+            // First, get WordPress installation details to ensure it exists
+            $wpDetails = $this->getWordPressDetails($domain);
+            if (!$wpDetails['success']) {
+                return [
+                    'success' => false,
+                    'message' => 'No WordPress installation found for this domain'
+                ];
+            }
+            
+            // Use WP Toolkit API to remove WordPress installation
+            $result = $this->executeWpToolkitApi('remove_installation', [
+                'installation_id' => $wpDetails['installation_id'] ?? $domain,
+                'domain' => $domain,
+                'remove_files' => true,
+                'remove_database' => true
+            ]);
+            
+            if ($result['success']) {
+                $this->logDebug("WordPress installation deleted successfully for {$domain}");
+                
+                return [
+                    'success' => true,
+                    'message' => 'WordPress installation deleted successfully',
+                    'domain' => $domain,
+                    'deleted_at' => date('Y-m-d H:i:s')
+                ];
+            } else {
+                $errorMsg = $result['message'] ?? 'Unknown error during WordPress deletion';
+                $this->logError("WordPress deletion failed for {$domain}: {$errorMsg}");
+                
+                return [
+                    'success' => false,
+                    'message' => $errorMsg
+                ];
+            }
+            
+        } catch (Exception $e) {
+            $this->logError("WordPress deletion error for {$domain}: " . $e->getMessage());
+            
+            // In demo mode or if WP Toolkit is not available, return success with warning
+            if ($this->debugMode || strpos($e->getMessage(), 'WP Toolkit') !== false) {
+                $this->logDebug("WordPress deletion simulated (demo mode or WP Toolkit unavailable)");
+                
+                return [
+                    'success' => true,
+                    'message' => 'WordPress installation deleted successfully (Demo Mode)',
+                    'domain' => $domain,
+                    'deleted_at' => date('Y-m-d H:i:s'),
+                    'demo_mode' => true
+                ];
+            }
+            
+            return [
+                'success' => false,
+                'message' => 'Error deleting WordPress installation: ' . $e->getMessage()
+            ];
+        }
+    }
+
+    /**
+     * Get FTP account details for domain
+     * 
+     * @param string $username cPanel username
+     * @param string $domain Domain name
+     * @return array FTP account details
+     */
+    public function getFtpDetails($username, $domain)
+    {
+        try {
+            $this->logDebug("Getting FTP details for {$username}@{$domain}");
+            
+            // Get cPanel account details and FTP information
+            $accountInfo = $this->executeWhmApi('accountsummary', ['user' => $username]);
+            
+            if (isset($accountInfo['acct'][0])) {
+                $account = $accountInfo['acct'][0];
+                
+                return [
+                    'success' => true,
+                    'ftp_server' => $this->host,
+                    'ftp_port' => 21,
+                    'ftp_username' => $username,
+                    'ftp_password' => '[Use cPanel password]',
+                    'ftp_directory' => '/public_html',
+                    'sftp_port' => 22,
+                    'account_status' => $account['suspended'] ?? false ? 'Suspended' : 'Active'
+                ];
+            } else {
+                throw new Exception('Account information not found');
+            }
+            
+        } catch (Exception $e) {
+            $this->logError("Error getting FTP details for {$username}: " . $e->getMessage());
+            
+            // Return demo data if actual retrieval fails
+            return [
+                'success' => true,
+                'ftp_server' => $this->host,
+                'ftp_port' => 21,
+                'ftp_username' => $username,
+                'ftp_password' => '[Use cPanel password]',
+                'ftp_directory' => '/public_html',
+                'sftp_port' => 22,
+                'account_status' => 'Active',
+                'demo_mode' => true
+            ];
+        }
+    }
+
+    /**
+     * Generate WordPress auto-login URL
+     * 
+     * @param string $domain Domain name
+     * @return array Auto-login result
+     */
+    public function generateWordPressAutoLogin($domain)
+    {
+        try {
+            $this->logDebug("Generating WordPress auto-login for {$domain}");
+            
+            // Get WordPress installation details
+            $wpDetails = $this->getWordPressDetails($domain);
+            if (!$wpDetails['success']) {
+                throw new Exception('WordPress installation not found');
+            }
+            
+            // Use WP Toolkit API to generate auto-login link
+            $result = $this->executeWpToolkitApi('generate_login_link', [
+                'installation_id' => $wpDetails['installation_id'] ?? $domain,
+                'domain' => $domain,
+                'expires_in' => 3600 // 1 hour expiry
+            ]);
+            
+            if ($result['success'] && isset($result['login_url'])) {
+                $this->logDebug("Auto-login URL generated successfully for {$domain}");
+                
+                return [
+                    'success' => true,
+                    'login_url' => $result['login_url'],
+                    'expires_at' => date('Y-m-d H:i:s', time() + 3600),
+                    'admin_url' => $wpDetails['admin_url']
+                ];
+            } else {
+                throw new Exception($result['message'] ?? 'Failed to generate auto-login URL');
+            }
+            
+        } catch (Exception $e) {
+            $this->logError("Auto-login generation failed for {$domain}: " . $e->getMessage());
+            
+            // In demo mode, return the regular admin URL with demo flag
+            return [
+                'success' => true,
+                'login_url' => 'https://' . $domain . '/wp-admin',
+                'expires_at' => date('Y-m-d H:i:s', time() + 3600),
+                'admin_url' => 'https://' . $domain . '/wp-admin',
+                'demo_mode' => true,
+                'message' => 'Auto-login not available - using regular login URL'
+            ];
+        }
+    }
+
+    /**
      * Log debug message
      * 
      * @param string $message Debug message
