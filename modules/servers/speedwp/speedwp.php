@@ -74,6 +74,14 @@ function speedwp_ConfigOptions()
             'Description' => 'cPanel package/plan name to use for new accounts (must exist on server)'
         ],
         
+        // cPanel package configuration
+        'Package Name' => [
+            'Type' => 'text',
+            'Size' => '20',
+            'Default' => 'default',
+            'Description' => 'cPanel package/plan name to use for new accounts (must exist on server)'
+        ],
+        
         // WordPress/WP Toolkit settings
         'Auto-Install WordPress' => [
             'Type' => 'yesno',
