@@ -206,16 +206,70 @@ class SpeedWP_AdminController
                 
                 $output .= '</div></div>';
             } else {
-                // No WordPress detected
+                // No WordPress detected for this specific domain - check for other installations
+                $allInstallations = $this->getAllWordPressInstallations();
+                
                 $output .= '<div class="panel panel-warning">';
                 $output .= '<div class="panel-heading"><h4><i class="fa fa-wordpress"></i> WordPress Status</h4></div>';
                 $output .= '<div class="panel-body">';
-                $output .= '<div class="alert alert-info">';
-                $output .= '<h4><i class="fa fa-info-circle"></i> No WordPress Installation Detected</h4>';
-                $output .= '<p>This hosting account does not appear to have WordPress installed, or WordPress is not managed by WP Toolkit.</p>';
+                
+                if ($allInstallations['success'] && $allInstallations['count'] > 0) {
+                    // Show other WordPress installations found on this account
+                    $output .= '<div class="alert alert-info">';
+                    $output .= '<h4><i class="fa fa-info-circle"></i> No WordPress Installation for Primary Domain</h4>';
+                    $output .= '<p>No WordPress installation was found for the primary domain <strong>' . htmlspecialchars($this->params['domain']) . '</strong>.</p>';
+                    $output .= '<p>However, <strong>' . $allInstallations['count'] . '</strong> WordPress installation(s) were found on this cPanel account:</p>';
+                    $output .= '</div>';
+                    
+                    $output .= '<div class="table-responsive">';
+                    $output .= '<table class="table table-striped">';
+                    $output .= '<thead><tr><th>Domain</th><th>Path</th><th>Version</th><th>Status</th><th>Actions</th></tr></thead>';
+                    $output .= '<tbody>';
+                    
+                    foreach ($allInstallations['installations'] as $installation) {
+                        $output .= '<tr>';
+                        $output .= '<td><strong>' . htmlspecialchars($installation['domain']) . '</strong></td>';
+                        $output .= '<td><code>' . htmlspecialchars($installation['path']) . '</code></td>';
+                        $output .= '<td>' . htmlspecialchars($installation['wp_version']) . '</td>';
+                        $output .= '<td><span class="label label-' . ($installation['status'] === 'active' ? 'success' : 'warning') . '">' . ucfirst($installation['status']) . '</span></td>';
+                        $output .= '<td>';
+                        if (!empty($installation['admin_url'])) {
+                            $output .= '<a href="' . htmlspecialchars($installation['admin_url']) . '" target="_blank" class="btn btn-xs btn-primary"><i class="fa fa-external-link"></i> Admin</a> ';
+                        }
+                        $output .= '<button type="button" class="btn btn-xs btn-info" onclick="linkWordPressInstallation(\'' . htmlspecialchars($installation['installation_id']) . '\', \'' . htmlspecialchars($installation['domain']) . '\')"><i class="fa fa-link"></i> Link</button>';
+                        $output .= '</td>';
+                        $output .= '</tr>';
+                    }
+                    
+                    $output .= '</tbody></table>';
+                    $output .= '</div>';
+                    
+                    $output .= '<div class="alert alert-warning" style="margin-top:15px;">';
+                    $output .= '<p><strong>Note:</strong> The installations listed above exist on this cPanel account but are not associated with the primary domain. You can:</p>';
+                    $output .= '<ul>';
+                    $output .= '<li>Click "Link" to associate an installation with this service</li>';
+                    $output .= '<li>Install a new WordPress instance for the primary domain</li>';
+                    $output .= '<li>Access existing installations directly via their admin URLs</li>';
+                    $output .= '</ul>';
+                    $output .= '</div>';
+                } else {
+                    // No WordPress installations found at all
+                    $output .= '<div class="alert alert-info">';
+                    $output .= '<h4><i class="fa fa-info-circle"></i> No WordPress Installation Detected</h4>';
+                    $output .= '<p>This hosting account does not appear to have WordPress installed, or WordPress is not managed by WP Toolkit.</p>';
+                    if ($allInstallations['success']) {
+                        $output .= '<p>WP Toolkit API is accessible but no installations were found.</p>';
+                    } else {
+                        $output .= '<p><strong>Error:</strong> ' . htmlspecialchars($allInstallations['message']) . '</p>';
+                    }
+                    $output .= '</div>';
+                }
+                
+                $output .= '<div style="margin-top:15px;">';
                 $output .= '<button type="button" class="btn btn-success" onclick="installWordPress(' . $this->params['serviceid'] . ')"><i class="fa fa-download"></i> Install WordPress</button> ';
-                $output .= '<button type="button" class="btn btn-primary" onclick="scanForWordPress(' . $this->params['serviceid'] . ')"><i class="fa fa-search"></i> Scan for WordPress</button>';
+                $output .= '<button type="button" class="btn btn-primary" onclick="scanForWordPress(' . $this->params['serviceid'] . ')"><i class="fa fa-search"></i> Rescan for WordPress</button>';
                 $output .= '</div>';
+                
                 $output .= '</div></div>';
             }
             
@@ -291,7 +345,7 @@ class SpeedWP_AdminController
     }
 
     /**
-     * Get WordPress details for admin display
+     * Get WordPress details for admin display (Updated to use discovery)
      * 
      * @return array WordPress site details
      */
@@ -303,10 +357,12 @@ class SpeedWP_AdminController
                 'host' => $this->params['serverhostname'] ?: $this->params['configoption1'],
                 'port' => $this->params['configoption2'] ?: 2087,
                 'username' => $this->params['serverusername'] ?: $this->params['configoption3'],
-                'password' => $this->params['serverpassword'] ?: $this->params['configoption4']
+                'password' => $this->params['serverpassword'] ?: $this->params['configoption4'],
+                'debug' => $this->params['configoption14'] === 'on'
             ]);
             
-            return $cpanel->getWordPressDetails($this->params['domain']);
+            // Use discovery method with cPanel username for better detection
+            return $cpanel->getWordPressDetails($this->params['domain'], $this->params['username']);
             
         } catch (Exception $e) {
             logActivity("SpeedWP: Error getting WordPress details from admin: " . $e->getMessage());
@@ -314,6 +370,37 @@ class SpeedWP_AdminController
             return [
                 'success' => false,
                 'message' => $e->getMessage()
+            ];
+        }
+    }
+
+    /**
+     * Get all WordPress installations for this cPanel account
+     * 
+     * @return array All WordPress installations
+     */
+    public function getAllWordPressInstallations()
+    {
+        try {
+            require_once __DIR__ . '/CpanelApi.php';
+            $cpanel = new SpeedWP_CpanelApi([
+                'host' => $this->params['serverhostname'] ?: $this->params['configoption1'],
+                'port' => $this->params['configoption2'] ?: 2087,
+                'username' => $this->params['serverusername'] ?: $this->params['configoption3'],
+                'password' => $this->params['serverpassword'] ?: $this->params['configoption4'],
+                'debug' => $this->params['configoption14'] === 'on'
+            ]);
+            
+            return $cpanel->getAllWordPressInstallations($this->params['username']);
+            
+        } catch (Exception $e) {
+            logActivity("SpeedWP: Error getting all WordPress installations: " . $e->getMessage());
+            
+            return [
+                'success' => false,
+                'message' => $e->getMessage(),
+                'installations' => [],
+                'count' => 0
             ];
         }
     }
