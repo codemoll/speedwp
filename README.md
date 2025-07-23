@@ -4,13 +4,14 @@ A comprehensive WordPress management addon for WHMCS that enables hosting client
 
 ## Features
 
-- **WordPress Detection**: Automatically scan hosting accounts for existing WordPress installations
-- **One-Click Installation**: Install WordPress directly from the client area
-- **Update Management**: Update WordPress core, themes, and plugins
-- **Backup & Restore**: Create and manage WordPress backups
-- **Client Self-Service**: Allow clients to manage their own WordPress sites
-- **Admin Overview**: Complete administrative interface for managing all client WordPress installations
-- **cPanel Integration**: Seamless integration with cPanel for file and database operations
+- **cPanel Account Management**: Create, suspend, unsuspend, and terminate hosting accounts
+- **WordPress Installation**: Automatic WordPress installation via WP Toolkit integration
+- **WordPress Management**: Complete WordPress lifecycle management
+- **Backup & Restore**: Automated backup creation and restoration
+- **SSL Integration**: Automatic SSL certificate provisioning
+- **Usage Monitoring**: Real-time disk space and bandwidth usage tracking
+- **Error Handling**: Comprehensive error logging and reporting
+- **Production Ready**: Full API error handling without fallbacks
 
 ## Installation
 
@@ -51,43 +52,38 @@ A comprehensive WordPress management addon for WHMCS that enables hosting client
 
 #### 1. Upload Module Files
 ```bash
-# Upload the speedwp folder to your WHMCS modules/addons directory
-/path/to/whmcs/modules/addons/speedwp/
+# Upload the speedwp folder to your WHMCS modules/servers directory
+/path/to/whmcs/modules/servers/speedwp/
 ```
 
 Ensure all files have proper permissions:
 ```bash
-chmod -R 755 /path/to/whmcs/modules/addons/speedwp/
+chmod -R 755 /path/to/whmcs/modules/servers/speedwp/
 ```
 
-#### 2. Activate the SpeedWP Addon
-1. Navigate to **Setup > Addon Modules** in WHMCS admin area
-2. Find "SpeedWP - WordPress Manager" in the list
-3. Click **Activate** button
-4. The module will automatically create required database tables
+#### 2. Create Server in WHMCS
+1. Navigate to **Setup > Products/Services > Servers** in WHMCS admin area
+2. Click **Add New Server**
+3. Configure server details:
+   - **Name**: Your cPanel server name
+   - **Hostname**: cPanel server hostname or IP
+   - **Module**: speedwp
+   - **Server Details**: Root username and password/API token
 
 #### 3. Configure Module Settings
-1. After activation, click **Configure** next to SpeedWP
-2. Configure the following settings:
-   - **cPanel Host**: Your cPanel server hostname or IP address
-   - **cPanel Port**: Usually 2083 for HTTPS (or 2082 for HTTP)
-   - **Auto-Install WordPress**: Enable to auto-install WordPress on new accounts
-   - **Auto-Create FTP Accounts**: Enable to create dedicated FTP access for each WordPress site
-   - **Include FTP in Welcome Email**: Add WordPress FTP credentials to welcome emails
-   - **Auto-Backup Before Updates**: Enable automatic backups before WordPress updates
-   - **Backup Retention (Days)**: Number of days to keep backups (default: 30)
-   - **Debug Mode**: Enable for troubleshooting (disable in production)
-
-#### 4. Set Administrator Permissions
-1. Go to **Setup > Administrator Roles**
-2. Edit the roles that should have access to SpeedWP
-3. Check the permissions for "SpeedWP - WordPress Manager"
-4. Save the role configuration
-
-#### 5. Verify Installation
-1. Navigate to **Addons > SpeedWP** in the admin area
-2. You should see the dashboard with demo statistics
-3. The interface will show sample data until you configure cPanel connectivity
+Configure the following settings when adding/editing the server:
+- **Server IP/Hostname**: Your cPanel server hostname or IP address
+- **WHM Port**: Usually 2087 for HTTPS
+- **WHM Username**: Root or reseller username  
+- **WHM Password/API Token**: Valid credentials with full API access
+- **Package Name**: cPanel package/plan name (must exist on server)
+- **Auto-Install WordPress**: Enable for automatic WordPress installation
+- **WordPress Version**: WordPress version to install (latest recommended)
+- **Default Admin Username**: Default WordPress admin username
+- **Enable SSL**: Automatically enable SSL for new WordPress sites
+- **Enable Backups**: Enable automatic backups via WP Toolkit
+- **Backup Frequency**: How often to create backups
+- **Debug Mode**: Enable for troubleshooting (disable in production)
 
 ## Product Setup and Client Assignment Guide
 
@@ -137,33 +133,36 @@ For existing clients or manual setup:
 4. Click **Scan for WordPress** to detect existing installations
 5. Or click **Install WordPress** to create a new installation
 
-#### 3. Client Access Instructions
+### Client Access
 
 **For Clients:**
+Clients access WordPress management through the service details in their client area:
 1. Log into the WHMCS client area
-2. Look for "WordPress Manager" in the main navigation
-3. Access all WordPress management features from this central dashboard
+2. Navigate to **My Products & Services**
+3. Click on their hosting service
+4. Access WordPress management features from the service details page
 
-**Client Features Available:**
-- View all WordPress sites across hosting accounts
-- Install new WordPress sites
-- Update WordPress core, plugins, and themes
-- Create and manage backups
-- Access FTP credentials (if enabled)
-- View site statistics and health information
+**Available Features:**
+- View WordPress installation details
+- Access WordPress admin panel
+- View backup status and history
+- Monitor resource usage
+- Basic WordPress management tools
 
-#### 4. Product Pricing Considerations
+### Hosting Package Configuration
 
-**Hosting Package Tiers with WordPress Features:**
-- **Basic**: WordPress installation + basic management
-- **Professional**: + automatic backups + updates
-- **Premium**: + advanced features + staging environments + priority support
+Configure your WHMCS hosting products to use the SpeedWP server module:
 
-**Add-on Services:**
-- WordPress Migration Service
-- WordPress Maintenance Service
-- WordPress Security Monitoring
-- Premium WordPress Themes/Plugins
+**Hosting Package Setup:**
+- **Basic Hosting**: cPanel account + optional WordPress installation
+- **WordPress Hosting**: cPanel account + automatic WordPress installation + SSL
+- **Premium Hosting**: All features + automatic backups + enhanced support
+
+**Server Assignment:**
+1. Create hosting products in WHMCS
+2. Assign products to servers using the SpeedWP module
+3. Configure package settings and WordPress options
+4. Set pricing and billing cycles
 
 #### 5. Troubleshooting Client Assignment
 
@@ -201,48 +200,32 @@ The addon requires cPanel API access to manage WordPress installations. Ensure y
 ## File Structure
 
 ```
-modules/addons/speedwp/
-├── speedwp.php              # Main addon module file
-├── hooks.php                # WHMCS hook registrations
-├── controllers/
-│   ├── ClientController.php # Client area functionality
-│   └── AdminController.php  # Admin area functionality
+modules/servers/speedwp/
+├── speedwp.php               # Main server module file
 ├── lib/
-│   └── cpanelApi.php       # cPanel API integration
+│   ├── CpanelApi.php        # cPanel API integration
+│   ├── AdminController.php  # Admin area functionality
+│   └── ClientAreaController.php # Client area functionality
 ├── templates/
-│   ├── clientarea/
-│   │   └── dashboard.tpl   # Client dashboard template
-│   └── admin/
-│       └── dashboard.tpl   # Admin dashboard template
-├── lang/
-│   └── english.php         # Language definitions
-└── README.md               # This file
+│   └── (template files)     # Client area templates
+└── README.md                # Module documentation
 ```
 
 ## Usage
 
-### Client Area
-
-Clients can access WordPress management through:
-1. **Main Navigation**: "WordPress Manager" menu item
-2. **Features**:
-   - View all WordPress sites
-   - Scan hosting accounts for WordPress
-   - Install new WordPress sites
-   - Update existing installations
-   - Create and manage backups
-   - Quick action buttons for common tasks
-
 ### Admin Area
 
-Administrators can manage all WordPress installations through:
-1. **Addon Modules > SpeedWP**
-2. **Features**:
-   - Overview dashboard with statistics
-   - Manage all client WordPress sites
-   - Bulk operations (scan, update, backup)
-   - Client management interface
-   - System tools and health checks
+Administrators can manage hosting accounts and WordPress installations through:
+1. **Setup > Products/Services > Servers**: Configure SpeedWP servers
+2. **Clients > View/Search Clients**: Manage individual client services  
+3. **Service Details**: Access WordPress management tools for each service
+
+### Client Area
+
+Clients can access WordPress management through their service details:
+1. **My Products & Services**: View active hosting services
+2. **Service Details**: Access WordPress admin panel and basic management tools
+3. **Account Information**: View usage statistics and service status
 
 ## Database Tables
 
@@ -312,20 +295,22 @@ The addon is designed for extensibility:
 
 ## Configuration Options
 
-### Module Settings
+### Server Module Settings
 
 | Setting | Description | Default |
 |---------|-------------|---------|
-| cPanel Host | Server hostname/IP | - |
-| cPanel Port | API port | 2083 |
+| Server IP/Hostname | cPanel server hostname or IP | - |
+| WHM Port | WHM API port | 2087 |
+| WHM Username | Root or reseller username | root |
+| WHM Password/API Token | API credentials | - |
+| Package Name | cPanel hosting package | default |
+| Auto-Install WordPress | Auto-install WordPress | Yes |
+| WordPress Version | WordPress version to install | latest |
+| Default Admin Username | Default WP admin username | admin |
+| Enable SSL | Auto-enable SSL | Yes |
+| Enable Backups | Auto-enable backups | Yes |
+| Backup Frequency | Backup schedule | weekly |
 | Debug Mode | Enable debug logging | No |
-
-### Future Settings
-- Auto-scan new accounts
-- Backup retention period
-- Update scheduling
-- Security scan frequency
-- Performance monitoring
 
 ## Security Considerations
 
