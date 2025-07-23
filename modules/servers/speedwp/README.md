@@ -133,13 +133,15 @@ After creating the server, configure the SpeedWP-specific options:
 | **WHM Port** | WHM API port | 2087 | Use 2087 for HTTPS, 2086 for HTTP |
 | **WHM Username** | API username | root | Usually "root" or reseller username |
 | **WHM Password/API Token** | Authentication | - | API token recommended over password |
-| **Package Name** | cPanel package/plan name | default | **NEW**: Package to assign to new accounts |
+| **Package Name** | cPanel package/plan name | default | Package to assign to new accounts |
 | **Auto-Install WordPress** | Auto WordPress setup | Yes | Install WordPress on account creation |
 | **WordPress Version** | WP version to install | latest | latest, 6.4, 6.3, 6.2 |
 | **Default Admin Username** | WP admin username | admin | Default WordPress admin user |
 | **Enable SSL** | Auto-enable SSL | Yes | Automatic SSL for WordPress sites |
 | **Enable Backups** | Auto-backup setup | Yes | Configure automatic WordPress backups |
 | **Backup Frequency** | Backup schedule | weekly | daily, weekly, monthly |
+| **API Timeout** | cPanel API timeout (seconds) | 180 | **NEW**: Configurable timeout for account creation |
+| **Debug Mode** | Enable debug logging | No | For troubleshooting (disable in production) |
 
 ### Step 3: Test Server Connection
 
@@ -205,6 +207,40 @@ openssl s_client -connect your-server.com:2087 -servername your-server.com
 
 # Auto-SSL setup (if using cPanel AutoSSL)
 /usr/local/cpanel/bin/checkallsslcerts
+```
+
+### Timeout Recovery and Account Creation Reliability
+
+The SpeedWP module includes advanced timeout recovery logic to handle cases where cPanel API calls timeout during account creation but the account is still successfully created on the server.
+
+#### How Timeout Recovery Works
+
+1. **Configurable Timeout**: The default API timeout has been increased from 60 to 180 seconds and is configurable via the "API Timeout" setting
+2. **Automatic Detection**: When a cURL timeout occurs during account creation, the module automatically detects this condition
+3. **Account Verification**: The module immediately checks if the account was actually created despite the timeout by querying the WHM API
+4. **Smart Response**: 
+   - **If account exists**: Returns success to WHMCS and logs a warning about the timeout recovery
+   - **If account doesn't exist**: Returns the original timeout error to WHMCS
+
+#### Benefits
+
+- **Prevents Duplicate Accounts**: Avoids creating duplicate accounts when WHMCS retries after a timeout
+- **Improved Reliability**: Ensures successful account creation even when network conditions cause timeouts
+- **Clear Logging**: Provides detailed logs about timeout scenarios for troubleshooting
+- **Transparent Operation**: Operates automatically without requiring manual intervention
+
+#### Configuration Recommendations
+
+- **Production Environments**: Set API Timeout to 180-300 seconds depending on server performance
+- **Development/Testing**: Use shorter timeouts (60-120 seconds) for faster feedback
+- **High-Load Servers**: Consider increasing timeout to 300+ seconds during peak usage periods
+
+#### Monitoring and Troubleshooting
+
+Monitor WHMCS Activity Logs for entries like:
+```
+SpeedWP: cURL timeout detected during account creation for username@domain.com, checking if account was created...
+SpeedWP: SUCCESS - Account username@domain.com was created successfully despite timeout
 ```
 
 ## Product Configuration
@@ -447,7 +483,36 @@ curl -k -u "root:password" "https://server.com:2087/json-api/version"
 iptables -L | grep 2087
 ```
 
-#### 2. WordPress Installation Failures
+#### 2. Account Creation Timeout Issues
+
+**Symptom**: "cURL error: Operation timed out" during account creation
+
+**Solutions**:
+- Increase API Timeout setting to 180-300 seconds
+- Check server performance and load during account creation
+- Monitor network connectivity between WHMCS and cPanel servers
+- Verify cPanel server resources (CPU, memory, disk I/O)
+
+**Understanding Timeout Recovery**:
+The module automatically handles timeout scenarios:
+- If timeout occurs, it checks if account was actually created
+- Success is returned to WHMCS if account exists
+- Original error is returned if account doesn't exist
+- All scenarios are logged in WHMCS Activity Log
+
+**Debugging**:
+```bash
+# Check cPanel server load
+uptime && free -h && df -h
+
+# Monitor API response times
+time curl -k -u "root:token" "https://server.com:2087/json-api/version"
+
+# Check WHMCS Activity Log for timeout recovery messages
+grep -i "timeout\|speedwp" /path/to/whmcs/activity.log
+```
+
+#### 3. WordPress Installation Failures
 
 **Symptom**: WordPress not installing during account creation
 
@@ -662,6 +727,32 @@ Test all changes with:
 6. **Error Handling**: Don't expose sensitive information in errors
 
 ## Changelog
+
+### Version 1.0.1 (Timeout and Reliability Improvements)
+
+**New Features**:
+- **Configurable API Timeout**: Added "API Timeout" configuration option (default 180 seconds) for improved account creation reliability
+- **Intelligent Timeout Recovery**: Automatic detection and recovery from cPanel account creation timeouts
+- **Account Existence Verification**: New API method to verify if accounts were created despite timeout errors
+- **Enhanced Logging**: Comprehensive logging for timeout scenarios and recovery operations
+
+**Timeout Recovery Logic**:
+- Detects cURL timeout errors during account creation
+- Automatically checks if account was actually created on server
+- Returns success to WHMCS if account exists (with warning log)
+- Returns original error if account doesn't exist
+- Prevents duplicate account creation attempts
+
+**Reliability Improvements**:
+- Increased default timeout from 60 to 180 seconds
+- Smart error handling for network-related issues
+- Detailed activity logging for troubleshooting
+- Documentation updates explaining timeout behavior
+
+**Configuration Updates**:
+- All configuration option numbers updated to accommodate new timeout setting
+- Backward compatibility maintained for existing installations
+- Enhanced error messages and logging throughout
 
 ### Version 1.0.0 (Production Release)
 

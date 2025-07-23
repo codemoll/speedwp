@@ -41,6 +41,11 @@ class SpeedWP_CpanelApi
      * @var bool Debug mode flag
      */
     private $debugMode;
+    
+    /**
+     * @var int API timeout in seconds
+     */
+    private $timeout;
 
     /**
      * Constructor
@@ -53,6 +58,7 @@ class SpeedWP_CpanelApi
         $this->port = max(1, min(65535, intval($config['port'] ?? 2087)));
         $this->username = trim($config['username'] ?? 'root');
         $this->password = $config['password'] ?? '';
+        $this->timeout = max(60, intval($config['timeout'] ?? 180));
         $this->debugMode = (bool)($config['debug'] ?? false);
         
         // Validate required parameters
@@ -182,10 +188,98 @@ class SpeedWP_CpanelApi
             }
             
         } catch (Exception $e) {
-            $this->logError("Account creation failed for {$accountDetails['user']}@{$accountDetails['domain']}: " . $e->getMessage());
+            $this->logError("Account creation encountered error for {$accountDetails['user']}@{$accountDetails['domain']}: " . $e->getMessage());
+            
+            // Check if this is a timeout error and implement recovery logic
+            if (strpos($e->getMessage(), 'Operation timed out') !== false || 
+                strpos($e->getMessage(), 'cURL error') !== false ||
+                strpos($e->getMessage(), 'timeout') !== false) {
+                
+                logActivity("SpeedWP: cURL timeout detected during account creation for {$username}@{$domain}, checking if account was created...");
+                
+                // Wait a moment for server to complete any pending operations
+                sleep(2);
+                
+                // Check if the account actually exists despite the timeout
+                $existsCheck = $this->checkAccountExists($username, $domain);
+                
+                if ($existsCheck['success'] && $existsCheck['exists']) {
+                    // Account was created successfully despite the timeout!
+                    logActivity("SpeedWP: SUCCESS - Account {$username}@{$domain} was created successfully despite timeout");
+                    $this->logDebug("Timeout recovery successful: account {$username} exists and is active");
+                    
+                    return [
+                        'success' => true,
+                        'message' => 'Account created successfully (recovered from timeout)',
+                        'username' => $username,
+                        'domain' => $domain,
+                        'timeout_recovery' => true
+                    ];
+                } else {
+                    // Account was not created, return the original timeout error
+                    logActivity("SpeedWP: FAILED - Account {$username}@{$domain} was not created after timeout");
+                    $this->logError("Timeout recovery failed: account {$username} does not exist");
+                }
+            }
             
             return [
                 'success' => false,
+                'message' => $e->getMessage()
+            ];
+        }
+    }
+
+    /**
+     * Check if a cPanel account exists
+     * 
+     * @param string $username Account username
+     * @param string $domain Account domain (optional)
+     * @return array Account existence check result
+     */
+    public function checkAccountExists($username, $domain = null)
+    {
+        try {
+            $this->logDebug("Checking if cPanel account exists: {$username}" . ($domain ? "@{$domain}" : ""));
+            
+            // Use the accountsummary API to check if account exists
+            $result = $this->executeWhmApi('accountsummary', ['user' => $username]);
+            
+            if (isset($result['acct'][0])) {
+                $account = $result['acct'][0];
+                $accountExists = true;
+                $accountDomain = $account['domain'] ?? '';
+                
+                // If domain is provided, verify it matches
+                if ($domain && $accountDomain !== $domain) {
+                    $this->logDebug("Account {$username} exists but domain mismatch: expected {$domain}, found {$accountDomain}");
+                    $accountExists = false;
+                }
+                
+                $this->logDebug("Account check result: " . ($accountExists ? 'EXISTS' : 'NOT_FOUND'));
+                
+                return [
+                    'success' => true,
+                    'exists' => $accountExists,
+                    'username' => $username,
+                    'domain' => $accountDomain,
+                    'status' => $account['suspended'] ?? 'active'
+                ];
+            } else {
+                $this->logDebug("Account {$username} does not exist");
+                return [
+                    'success' => true,
+                    'exists' => false,
+                    'username' => $username,
+                    'domain' => $domain
+                ];
+            }
+            
+        } catch (Exception $e) {
+            $this->logError("Account existence check failed for {$username}: " . $e->getMessage());
+            
+            return [
+                'success' => false,
+                'exists' => false,
                 'message' => $e->getMessage()
             ];
         }
@@ -772,7 +866,7 @@ class SpeedWP_CpanelApi
             curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, true);
             curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, 2);
             curl_setopt($ch, CURLOPT_USERPWD, $this->username . ':' . $this->password);
-            curl_setopt($ch, CURLOPT_TIMEOUT, 60);
+            curl_setopt($ch, CURLOPT_TIMEOUT, $this->timeout);
             curl_setopt($ch, CURLOPT_USERAGENT, 'SpeedWP-WHMCS-Module/1.0');
             curl_setopt($ch, CURLOPT_FOLLOWLOCATION, false);
             curl_setopt($ch, CURLOPT_MAXREDIRS, 0);
