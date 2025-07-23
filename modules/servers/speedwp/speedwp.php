@@ -111,6 +111,14 @@ function speedwp_ConfigOptions()
             'Description' => 'Automatic backup frequency'
         ],
         
+        // API settings
+        'API Timeout' => [
+            'Type' => 'text',
+            'Size' => '5',
+            'Default' => '180',
+            'Description' => 'cPanel API timeout in seconds (recommended: 180 for account creation)'
+        ],
+        
         // Debug settings
         'Debug Mode' => [
             'Type' => 'yesno',
@@ -170,7 +178,8 @@ function speedwp_CreateAccount($params)
             'port' => intval($params['configoption2'] ?: 2087),
             'username' => $params['serverusername'] ?: $params['configoption3'],
             'password' => $params['serverpassword'] ?: $params['configoption4'],
-            'debug' => $params['configoption12'] === 'on' // Debug Mode is now option 12
+            'timeout' => max(60, intval($params['configoption13'] ?: 180)), // API Timeout is now option 13
+            'debug' => $params['configoption14'] === 'on' // Debug Mode is now option 14
         ]);
         
         // Prepare account details
@@ -201,7 +210,7 @@ function speedwp_CreateAccount($params)
         }
         
         // Install WordPress if enabled
-        if ($params['configoption6'] === 'on') { // Auto-Install WordPress is now option 6
+        if ($params['configoption6'] === 'on') { // Auto-Install WordPress is option 6
             $adminUsername = preg_replace('/[^a-zA-Z0-9_]/', '', trim($params['configoption8']) ?: 'admin');
             $wpVersion = in_array($params['configoption7'], ['latest', '6.4', '6.3', '6.2']) 
                 ? $params['configoption7'] : 'latest';
@@ -215,9 +224,9 @@ function speedwp_CreateAccount($params)
                 'site_title' => htmlspecialchars($domain . ' - WordPress Site'),
                 'version' => $wpVersion,
                 'enable_ssl' => $params['configoption9'] === 'on',
-                'enable_backups' => $params['configoption10'] === 'on',
-                'backup_frequency' => in_array($params['configoption11'], ['daily', 'weekly', 'monthly']) 
-                    ? $params['configoption11'] : 'weekly'
+                'enable_backups' => $params['configoption11'] === 'on',
+                'backup_frequency' => in_array($params['configoption12'], ['daily', 'weekly', 'monthly']) 
+                    ? $params['configoption12'] : 'weekly'
             ]);
             
             if ($wpResult['success']) {
@@ -276,7 +285,8 @@ function speedwp_SuspendAccount($params)
             'port' => intval($params['configoption2'] ?: 2087),
             'username' => $params['serverusername'] ?: $params['configoption3'],
             'password' => $params['serverpassword'] ?: $params['configoption4'],
-            'debug' => $params['configoption12'] === 'on'
+            'timeout' => max(60, intval($params['configoption13'] ?: 180)),
+            'debug' => $params['configoption14'] === 'on'
         ]);
         
         $result = $cpanel->suspendAccount($username, 'Suspended via WHMCS');
@@ -330,7 +340,8 @@ function speedwp_UnsuspendAccount($params)
             'port' => intval($params['configoption2'] ?: 2087),
             'username' => $params['serverusername'] ?: $params['configoption3'],
             'password' => $params['serverpassword'] ?: $params['configoption4'],
-            'debug' => $params['configoption12'] === 'on'
+            'timeout' => max(60, intval($params['configoption13'] ?: 180)),
+            'debug' => $params['configoption14'] === 'on'
         ]);
         
         $result = $cpanel->unsuspendAccount($username);
@@ -384,11 +395,12 @@ function speedwp_TerminateAccount($params)
             'port' => intval($params['configoption2'] ?: 2087),
             'username' => $params['serverusername'] ?: $params['configoption3'],
             'password' => $params['serverpassword'] ?: $params['configoption4'],
-            'debug' => $params['configoption12'] === 'on'
+            'timeout' => max(60, intval($params['configoption13'] ?: 180)),
+            'debug' => $params['configoption14'] === 'on'
         ]);
         
         // Create final backup before termination if enabled
-        if ($params['configoption10'] === 'on') { // Enable Backups is now option 10
+        if ($params['configoption11'] === 'on') { // Enable Backups is now option 11
             try {
                 $backupResult = $cpanel->createFinalBackup($username);
                 if ($backupResult['success']) {
@@ -449,7 +461,8 @@ function speedwp_ChangePassword($params)
             'port' => intval($params['configoption2'] ?: 2087),
             'username' => $params['serverusername'] ?: $params['configoption3'],
             'password' => $params['serverpassword'] ?: $params['configoption4'],
-            'debug' => $params['configoption12'] === 'on'
+            'timeout' => max(60, intval($params['configoption13'] ?: 180)),
+            'debug' => $params['configoption14'] === 'on'
         ]);
         
         $result = $cpanel->changeAccountPassword($username, $params['password']);
@@ -567,7 +580,8 @@ function speedwp_resetWordPressPassword($params)
             'port' => intval($params['configoption2'] ?: 2087),
             'username' => $params['serverusername'] ?: $params['configoption3'],
             'password' => $params['serverpassword'] ?: $params['configoption4'],
-            'debug' => $params['configoption12'] === 'on'
+            'timeout' => max(60, intval($params['configoption13'] ?: 180)),
+            'debug' => $params['configoption14'] === 'on'
         ]);
         
         $newPassword = speedwp_generatePassword(12);
@@ -616,7 +630,8 @@ function speedwp_createBackup($params)
             'port' => intval($params['configoption2'] ?: 2087),
             'username' => $params['serverusername'] ?: $params['configoption3'],
             'password' => $params['serverpassword'] ?: $params['configoption4'],
-            'debug' => $params['configoption12'] === 'on'
+            'timeout' => max(60, intval($params['configoption13'] ?: 180)),
+            'debug' => $params['configoption14'] === 'on'
         ]);
         
         $result = $cpanel->createWordPressBackup($domain);
@@ -696,7 +711,8 @@ function speedwp_TestConnection($params)
             'port' => $port,
             'username' => $username,
             'password' => $password,
-            'debug' => $params['configoption12'] === 'on'
+            'timeout' => max(60, intval($params['configoption13'] ?: 180)),
+            'debug' => $params['configoption14'] === 'on'
         ]);
         
         $result = $cpanel->testConnection();
@@ -748,7 +764,8 @@ function speedwp_UsageUpdate($params)
             'port' => intval($params['configoption2'] ?: 2087),
             'username' => $params['serverusername'] ?: $params['configoption3'],
             'password' => $params['serverpassword'] ?: $params['configoption4'],
-            'debug' => $params['configoption12'] === 'on'
+            'timeout' => max(60, intval($params['configoption13'] ?: 180)),
+            'debug' => $params['configoption14'] === 'on'
         ]);
         
         $usage = $cpanel->getAccountUsage($username);
