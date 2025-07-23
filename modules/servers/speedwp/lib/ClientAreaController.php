@@ -107,25 +107,33 @@ class SpeedWP_ClientAreaController
     }
 
     /**
-     * Get client area dashboard data
+     * Get client area dashboard data (Updated to use discovery)
      * 
      * @return array Template data for client area
      */
     public function getDashboard()
     {
         try {
-            // Get WordPress site details
+            // Get WordPress site details using discovery method
             require_once __DIR__ . '/CpanelApi.php';
             $cpanel = new SpeedWP_CpanelApi([
                 'host' => $this->params['serverhostname'] ?: $this->params['configoption1'],
                 'port' => $this->params['configoption2'] ?: 2087,
                 'username' => $this->params['serverusername'] ?: $this->params['configoption3'],
-                'password' => $this->params['serverpassword'] ?: $this->params['configoption4']
+                'password' => $this->params['serverpassword'] ?: $this->params['configoption4'],
+                'debug' => $this->params['configoption14'] === 'on'
             ]);
             
-            $wpDetails = $cpanel->getWordPressDetails($this->params['domain']);
+            // Use discovery method for better detection
+            $wpDetails = $cpanel->getWordPressDetails($this->params['domain'], $this->params['username']);
             $hostingDetails = $this->getHostingAccountDetails();
             $ftpDetails = $cpanel->getFtpDetails($this->params['username'], $this->params['domain']);
+            
+            // If primary domain WordPress not found, get all installations for this account
+            $allInstallations = null;
+            if (!$wpDetails['success']) {
+                $allInstallations = $cpanel->getAllWordPressInstallations($this->params['username']);
+            }
             
             return [
                 'templatefile' => 'dashboard',
@@ -133,11 +141,12 @@ class SpeedWP_ClientAreaController
                     'domain' => $this->params['domain'],
                     'username' => $this->params['username'],
                     'wp_details' => $wpDetails,
+                    'all_installations' => $allInstallations,
                     'hosting_details' => $hostingDetails,
                     'ftp_details' => $ftpDetails,
                     'service_id' => $this->params['serviceid'],
                     'client_area_url' => $this->params['whmcsurl'] . 'clientarea.php?action=productdetails&id=' . $this->params['serviceid'],
-                    'show_wordpress_section' => $wpDetails['success'],
+                    'show_wordpress_section' => $wpDetails['success'] || ($allInstallations && $allInstallations['count'] > 0),
                     'demo_mode' => $wpDetails['demo_mode'] ?? false
                 ]
             ];
@@ -156,7 +165,7 @@ class SpeedWP_ClientAreaController
     }
 
     /**
-     * Refresh WordPress details via AJAX
+     * Refresh WordPress details via AJAX (Updated to use discovery)
      * 
      * @return array AJAX response
      */
@@ -168,21 +177,29 @@ class SpeedWP_ClientAreaController
                 'host' => $this->params['serverhostname'] ?: $this->params['configoption1'],
                 'port' => $this->params['configoption2'] ?: 2087,
                 'username' => $this->params['serverusername'] ?: $this->params['configoption3'],
-                'password' => $this->params['serverpassword'] ?: $this->params['configoption4']
+                'password' => $this->params['serverpassword'] ?: $this->params['configoption4'],
+                'debug' => $this->params['configoption14'] === 'on'
             ]);
             
-            $wpDetails = $cpanel->getWordPressDetails($this->params['domain']);
+            // Use discovery method for better detection
+            $wpDetails = $cpanel->getWordPressDetails($this->params['domain'], $this->params['username']);
             
-            if ($wpDetails['success']) {
+            // If primary domain WordPress not found, get all installations
+            if (!$wpDetails['success']) {
+                $allInstallations = $cpanel->getAllWordPressInstallations($this->params['username']);
+                
                 return [
                     'success' => true,
-                    'message' => 'WordPress details refreshed successfully',
-                    'data' => $wpDetails
+                    'message' => 'WordPress scan completed',
+                    'primary_found' => false,
+                    'all_installations' => $allInstallations
                 ];
             } else {
                 return [
-                    'success' => false,
-                    'message' => 'Failed to refresh WordPress details'
+                    'success' => true,
+                    'message' => 'WordPress details refreshed successfully',
+                    'primary_found' => true,
+                    'data' => $wpDetails
                 ];
             }
             
@@ -195,7 +212,7 @@ class SpeedWP_ClientAreaController
     }
 
     /**
-     * Create WordPress backup via AJAX
+     * Create WordPress backup via AJAX (Updated to use discovery)
      * 
      * @return array AJAX response
      */
@@ -207,10 +224,12 @@ class SpeedWP_ClientAreaController
                 'host' => $this->params['serverhostname'] ?: $this->params['configoption1'],
                 'port' => $this->params['configoption2'] ?: 2087,
                 'username' => $this->params['serverusername'] ?: $this->params['configoption3'],
-                'password' => $this->params['serverpassword'] ?: $this->params['configoption4']
+                'password' => $this->params['serverpassword'] ?: $this->params['configoption4'],
+                'debug' => $this->params['configoption14'] === 'on'
             ]);
             
-            $result = $cpanel->createWordPressBackup($this->params['domain']);
+            // Use discovery method for better reliability
+            $result = $cpanel->createWordPressBackup($this->params['domain'], $this->params['username']);
             
             if ($result['success']) {
                 logActivity("SpeedWP: Client-initiated backup created for {$this->params['domain']} - {$result['backup_name']}");
@@ -238,7 +257,7 @@ class SpeedWP_ClientAreaController
     }
 
     /**
-     * Reset WordPress admin password via AJAX
+     * Reset WordPress admin password via AJAX (Updated to use discovery)
      * 
      * @return array AJAX response
      */
@@ -250,11 +269,13 @@ class SpeedWP_ClientAreaController
                 'host' => $this->params['serverhostname'] ?: $this->params['configoption1'],
                 'port' => $this->params['configoption2'] ?: 2087,
                 'username' => $this->params['serverusername'] ?: $this->params['configoption3'],
-                'password' => $this->params['serverpassword'] ?: $this->params['configoption4']
+                'password' => $this->params['serverpassword'] ?: $this->params['configoption4'],
+                'debug' => $this->params['configoption14'] === 'on'
             ]);
             
             $newPassword = $cpanel->generatePassword(12);
-            $result = $cpanel->resetWordPressPassword($this->params['domain'], $newPassword);
+            // Use discovery method for better reliability
+            $result = $cpanel->resetWordPressPassword($this->params['domain'], $newPassword, $this->params['username']);
             
             if ($result['success']) {
                 logActivity("SpeedWP: Client-initiated WordPress password reset for {$this->params['domain']}");
@@ -271,6 +292,13 @@ class SpeedWP_ClientAreaController
                 ];
             }
             
+        } catch (Exception $e) {
+            return [
+                'success' => false,
+                'message' => 'Error resetting password: ' . $e->getMessage()
+            ];
+        }
+    }
         } catch (Exception $e) {
             return [
                 'success' => false,
@@ -402,10 +430,12 @@ class SpeedWP_ClientAreaController
                 'host' => $this->params['serverhostname'] ?: $this->params['configoption1'],
                 'port' => $this->params['configoption2'] ?: 2087,
                 'username' => $this->params['serverusername'] ?: $this->params['configoption3'],
-                'password' => $this->params['serverpassword'] ?: $this->params['configoption4']
+                'password' => $this->params['serverpassword'] ?: $this->params['configoption4'],
+                'debug' => $this->params['configoption14'] === 'on'
             ]);
             
-            $result = $cpanel->generateWordPressAutoLogin($this->params['domain']);
+            // Use discovery method for better reliability
+            $result = $cpanel->generateWordPressAutoLogin($this->params['domain'], $this->params['username']);
             
             if ($result['success']) {
                 logActivity("SpeedWP: Client-initiated auto-login generated for {$this->params['domain']}");

@@ -540,7 +540,7 @@ function speedwp_AdminCustomButtonArray($params)
 }
 
 /**
- * Create WordPress installation in public_html
+ * Create WordPress installation in public_html (Updated to use discovery)
  * 
  * @param array $params Module parameters from WHMCS
  * @return string Success or error message
@@ -567,6 +567,17 @@ function speedwp_createWordPress($params)
             'timeout' => max(60, intval($params['configoption13'] ?: 180)),
             'debug' => $params['configoption14'] === 'on'
         ]);
+        
+        // First check if WordPress already exists for this domain
+        $existingSearch = $cpanel->findWordPressInstallationByDomain($params['username'], $domain);
+        if ($existingSearch['success'] && $existingSearch['found']) {
+            $installation = $existingSearch['installation'];
+            return "WordPress is already installed for this domain!\n\n" .
+                   "Admin URL: " . $installation['admin_url'] . "\n" .
+                   "WordPress Version: " . $installation['wp_version'] . "\n" .
+                   "Installation ID: " . $installation['installation_id'] . "\n\n" .
+                   "Use 'Manage WordPress' or 'Reset WP Password' to manage this installation.";
+        }
         
         // Auto-generate WordPress credentials
         $adminUsername = 'admin';
@@ -643,20 +654,38 @@ function speedwp_deleteWordPress($params)
             'debug' => $params['configoption14'] === 'on'
         ]);
         
+        // First check if WordPress exists for this domain
+        $existingSearch = $cpanel->findWordPressInstallationByDomain($params['username'], $domain);
+        if (!$existingSearch['success']) {
+            return "Error: Unable to search for WordPress installations: " . $existingSearch['message'];
+        }
+        
+        if (!$existingSearch['found']) {
+            return "No WordPress installation found for this domain. The installation may have already been deleted or was never created.";
+        }
+        
+        $installation = $existingSearch['installation'];
+        $message = "Found WordPress installation:\n";
+        $message .= "- Installation ID: " . $installation['installation_id'] . "\n";
+        $message .= "- Version: " . $installation['wp_version'] . "\n";
+        $message .= "- Path: " . $installation['path'] . "\n\n";
+        
         // Create backup before deletion if requested
         $createBackup = isset($_POST['create_backup']) && $_POST['create_backup'] === 'yes';
         if ($createBackup) {
             try {
-                $backupResult = $cpanel->createWordPressBackup($domain);
+                $backupResult = $cpanel->createWordPressBackup($domain, $params['username']);
                 if ($backupResult['success']) {
                     logActivity("SpeedWP: Final backup created before WordPress deletion for {$domain}");
+                    $message .= "Backup created successfully before deletion.\n\n";
                 }
             } catch (Exception $e) {
                 logActivity("SpeedWP: Warning - Final backup failed for {$domain}: " . $e->getMessage());
+                $message .= "Warning: Backup creation failed: " . $e->getMessage() . "\n\n";
             }
         }
         
-        $result = $cpanel->deleteWordPressInstallation($domain);
+        $result = $cpanel->deleteWordPressInstallation($domain, $params['username']);
         
         if ($result['success']) {
             // Clear WordPress details from custom fields
@@ -733,8 +762,21 @@ function speedwp_resetWordPressPassword($params)
             'debug' => $params['configoption14'] === 'on'
         ]);
         
+        // First check if WordPress exists for this domain
+        $existingSearch = $cpanel->findWordPressInstallationByDomain($params['username'], $domain);
+        if (!$existingSearch['success']) {
+            return "Error: Unable to search for WordPress installations: " . $existingSearch['message'];
+        }
+        
+        if (!$existingSearch['found']) {
+            return "Error: No WordPress installation found for this domain.";
+        }
+        
+        $installation = $existingSearch['installation'];
+        $message = "Found WordPress installation (ID: " . $installation['installation_id'] . ")\n\n";
+        
         $newPassword = speedwp_generatePassword(12);
-        $result = $cpanel->resetWordPressPassword($domain, $newPassword);
+        $result = $cpanel->resetWordPressPassword($domain, $newPassword, $params['username']);
         
         if ($result['success']) {
             // Update stored password
@@ -744,7 +786,7 @@ function speedwp_resetWordPressPassword($params)
                 logActivity("SpeedWP: Warning - Could not update custom field for password reset: " . $e->getMessage());
             }
             
-            return "WordPress admin password reset successfully.\n\nNew password: " . $newPassword . "\n\nPlease save this password securely and log in to change it to something memorable.";
+            return $message . "WordPress admin password reset successfully.\n\nNew password: " . $newPassword . "\n\nPlease save this password securely and log in to change it to something memorable.";
         } else {
             return "Error: " . $result['message'];
         }
@@ -783,10 +825,23 @@ function speedwp_createBackup($params)
             'debug' => $params['configoption14'] === 'on'
         ]);
         
-        $result = $cpanel->createWordPressBackup($domain);
+        // First check if WordPress exists for this domain
+        $existingSearch = $cpanel->findWordPressInstallationByDomain($params['username'], $domain);
+        if (!$existingSearch['success']) {
+            return "Error: Unable to search for WordPress installations: " . $existingSearch['message'];
+        }
+        
+        if (!$existingSearch['found']) {
+            return "Error: No WordPress installation found for this domain.";
+        }
+        
+        $installation = $existingSearch['installation'];
+        $preMessage = "Found WordPress installation (ID: " . $installation['installation_id'] . ")\n\n";
+        
+        $result = $cpanel->createWordPressBackup($domain, $params['username']);
         
         if ($result['success']) {
-            $message = "WordPress backup created successfully!\n\n";
+            $message = $preMessage . "WordPress backup created successfully!\n\n";
             $message .= "Backup Name: " . $result['backup_name'] . "\n";
             if (isset($result['backup_size'])) {
                 $message .= "Size: " . $result['backup_size'] . "\n";
